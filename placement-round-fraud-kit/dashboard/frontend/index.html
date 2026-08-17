@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Argus — Behavioral Anomaly Intelligence</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">A</div>
+      <div class="brand-text">
+        <h1>Argus</h1>
+        <p>Behavioral Anomaly Intelligence</p>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item active" data-page="overview"></button>
+      <button class="nav-item" data-page="explorer"></button>
+      <button class="nav-item" data-page="queue"></button>
+      <button class="nav-item" data-page="comparison"></button>
+      <button class="nav-item" data-page="explainability"></button>
+    </nav>
+    <div class="nav-section-label">Secondary tool</div>
+    <nav class="nav">
+      <button class="nav-item" data-page="simulator"></button>
+    </nav>
+
+    <div class="sidebar-footer">
+      Transaction scores are a research signal derived from an unsupervised
+      anomaly ensemble, not a verified fraud determination. See About on the
+      Overview page.
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h2 id="page-title">Overview Dashboard</h2>
+        <div class="topbar-sub" id="page-subtitle">Portfolio-wide transaction risk, at a glance</div>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" type="button">
+        <span id="theme-icon"></span>
+        <span id="theme-label">Dark</span>
+      </button>
+    </header>
+
+    <main class="page-root">
+
+      <!-- ================= OVERVIEW ================= -->
+      <section class="page active" id="page-overview">
+        <div class="grid grid-cols-5" id="kpi-tiles">
+          <div class="kpi-tile"><p class="kpi-label">Total transactions</p><div class="kpi-value skeleton-loading" data-kpi="total"></div></div>
+          <div class="kpi-tile"><p class="kpi-label">High risk</p><div class="kpi-value skeleton-loading" data-kpi="high"></div></div>
+          <div class="kpi-tile"><p class="kpi-label">Needs review</p><div class="kpi-value skeleton-loading" data-kpi="review"></div></div>
+          <div class="kpi-tile"><p class="kpi-label">Flag rate</p><div class="kpi-value skeleton-loading" data-kpi="flagrate"></div></div>
+          <div class="kpi-tile"><p class="kpi-label">Avg. transaction amount</p><div class="kpi-value skeleton-loading" data-kpi="avgamount"></div></div>
+        </div>
+
+        <div class="grid grid-cols-2 section-gap">
+          <div class="card">
+            <p class="card-title">Risk-tier distribution</p>
+            <p class="card-subtitle">2,512 transactions, split by unsupervised-ensemble confidence tier</p>
+            <div id="chart-tier-distribution"></div>
+          </div>
+          <div class="card">
+            <p class="card-title">Transaction volume over time</p>
+            <p class="card-subtitle">Transactions per day, full dataset window</p>
+            <div id="chart-timeseries"></div>
+          </div>
+        </div>
+
+        <div class="card section-gap">
+          <p class="card-title">Highest-risk transactions right now</p>
+          <p class="card-subtitle">Top 10 by model risk score — click a row for the full explanation</p>
+          <div class="table-wrap"><table class="data-table" id="table-top-risk">
+            <thead><tr>
+              <th>Transaction</th><th>Account</th><th>Date</th><th class="num">Amount</th>
+              <th>Channel</th><th>Risk tier</th><th class="num">Risk score</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table></div>
+        </div>
+
+        <div class="card section-gap about-panel">
+          <h4>About this system</h4>
+          <p>
+            "Risk" on this dashboard means <strong>pattern-consistency with an unsupervised anomaly ensemble</strong>
+            (Isolation Forest, Local Outlier Factor, One-Class SVM, Elliptic Envelope), not a verified,
+            investigator-confirmed fraud outcome — this dataset carries no ground-truth fraud label. The
+            supervised XGBoost model was trained to reproduce that ensemble's own judgment, so strong feature
+            attribution here confirms internal consistency, not necessarily real-world causal drivers of fraud.
+          </p>
+          <p>
+            The dataset is also far smaller than the ~1M rows a production deployment would see (2,512
+            transactions, 495 accounts), and the 5% contamination rate used to tune the anomaly detectors is a
+            documented assumption, not a measured fraud rate. Before any production use: validate against
+            investigator-labeled cases, and re-tune thresholds against the bank's real cost-of-fraud figures.
+          </p>
+        </div>
+      </section>
+
+      <!-- ================= EXPLORER ================= -->
+      <section class="page" id="page-explorer">
+        <div class="filter-bar">
+          <div class="search-input-wrap">
+            <span id="explorer-search-icon"></span>
+            <input class="input" id="explorer-search" placeholder="Search Transaction ID or Account ID" />
+          </div>
+          <select class="select" id="explorer-risk-tier">
+            <option value="">All risk tiers</option>
+            <option value="high">High confidence fraud</option>
+            <option value="medium">Medium / needs review</option>
+            <option value="normal">Normal</option>
+          </select>
+          <select class="select" id="explorer-channel">
+            <option value="">All channels</option>
+            <option value="ATM">ATM</option>
+            <option value="Online">Online</option>
+            <option value="Branch">Branch</option>
+          </select>
+          <select class="select" id="explorer-txn-type">
+            <option value="">Debit &amp; credit</option>
+            <option value="Debit">Debit</option>
+            <option value="Credit">Credit</option>
+          </select>
+          <input class="input" type="number" id="explorer-amount-min" placeholder="Min amount" style="width:110px" />
+          <input class="input" type="number" id="explorer-amount-max" placeholder="Max amount" style="width:110px" />
+          <input class="input" type="date" id="explorer-date-start" />
+          <input class="input" type="date" id="explorer-date-end" />
+          <button class="btn btn-ghost" id="explorer-reset">Reset filters</button>
+        </div>
+
+        <div class="card">
+          <div class="table-wrap"><table class="data-table" id="table-explorer">
+            <thead><tr>
+              <th data-sort="transaction_id">Transaction</th>
+              <th data-sort="transaction_id">Account</th>
+              <th data-sort="date">Date</th>
+              <th data-sort="amount" class="num">Amount</th>
+              <th>Channel</th>
+              <th>Type</th>
+              <th>Risk tier</th>
+              <th data-sort="risk_score" class="num">Risk score</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <div class="pagination">
+            <span id="explorer-count"></span>
+            <div class="pagination-controls">
+              <button class="btn btn-sm btn-ghost" id="explorer-prev"></button>
+              <span id="explorer-page-label"></span>
+              <button class="btn btn-sm btn-ghost" id="explorer-next"></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= INVESTIGATION QUEUE ================= -->
+      <section class="page" id="page-queue">
+        <div class="filter-bar">
+          <select class="select" id="queue-status">
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="escalated">Escalated</option>
+            <option value="blocked">Blocked</option>
+          </select>
+          <button class="btn btn-primary" id="queue-export" style="margin-left:auto">Export queue to CSV</button>
+        </div>
+
+        <div class="card">
+          <div class="table-wrap"><table class="data-table" id="table-queue">
+            <thead><tr>
+              <th class="num">Rank</th><th>Transaction</th><th>Account</th><th class="num">Amount</th>
+              <th>Risk tier</th><th class="num">Risk score</th><th>Status</th><th>Actions</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <div class="pagination">
+            <span id="queue-count"></span>
+            <div class="pagination-controls">
+              <button class="btn btn-sm btn-ghost" id="queue-prev"></button>
+              <span id="queue-page-label"></span>
+              <button class="btn btn-sm btn-ghost" id="queue-next"></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= MODEL COMPARISON ================= -->
+      <section class="page" id="page-comparison">
+        <div class="grid grid-cols-2">
+          <div class="card">
+            <p class="card-title">Unsupervised detector comparison</p>
+            <p class="card-subtitle">4-detector ensemble, contamination assumption = 5%</p>
+            <div class="table-wrap"><table class="data-table" id="table-detectors">
+              <thead><tr><th>Detector</th><th class="num">Flagged</th><th class="num">Rate</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+          </div>
+          <div class="card">
+            <p class="card-title">Vote distribution</p>
+            <p class="card-subtitle">How many of the 4 detectors agreed, per transaction</p>
+            <div id="chart-vote-distribution"></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 section-gap">
+          <div class="card">
+            <p class="card-title">SMOTE vs. class-weighted XGBoost</p>
+            <p class="card-subtitle">SMOTE ships as the primary model per the brief's requirement</p>
+            <div id="chart-model-variants"></div>
+            <p class="card-subtitle section-gap" id="primary-model-note"></p>
+          </div>
+          <div class="card">
+            <p class="card-title">Confusion matrix</p>
+            <p class="card-subtitle" id="confusion-subtitle">Primary model, held-out test set</p>
+            <div id="confusion-matrix"></div>
+          </div>
+        </div>
+
+        <div class="stat-highlight section-gap">
+          <p class="card-title">Why accuracy alone is misleading here</p>
+          <div class="stat-highlight-row">
+            <div><div class="stat-highlight-num" id="naive-accuracy"></div><div class="stat-highlight-label">Naive "always normal" baseline</div></div>
+            <div><div class="stat-highlight-num" id="model-accuracy"></div><div class="stat-highlight-label">Actual model accuracy</div></div>
+          </div>
+          <p id="accuracy-explanation" style="font-size:12.8px;color:var(--text-secondary);line-height:1.55;margin:8px 0 0"></p>
+        </div>
+      </section>
+
+      <!-- ================= EXPLAINABILITY ================= -->
+      <section class="page" id="page-explainability">
+        <div class="card">
+          <p class="card-title">Global feature importance</p>
+          <p class="card-subtitle">Mean absolute SHAP value across all scored transactions (primary model)</p>
+          <div id="chart-shap-global"></div>
+        </div>
+
+        <div class="card section-gap">
+          <p class="card-title">Decision-tree rules (depth 3)</p>
+          <p class="card-subtitle">A shallow, human-readable tree trained on the same features, for interpretability alongside the primary model</p>
+          <div id="rules-list"></div>
+        </div>
+
+        <div class="card section-gap">
+          <p class="card-title">Cost-based threshold sweep</p>
+          <p class="card-subtitle" id="cost-sweep-subtitle">Illustrative costs — false positive vs. false negative — swept across classification thresholds on the held-out test set</p>
+          <div id="chart-cost-sweep"></div>
+        </div>
+      </section>
+
+      <!-- ================= WHAT-IF SIMULATOR ================= -->
+      <section class="page" id="page-simulator">
+        <div class="simulator-banner">
+          <span id="simulator-flask-icon"></span>
+          Secondary tool — hypothesize about a single brand-new transaction. Every real transaction already
+          has a precomputed score; use the Explorer to look those up instead of retyping them here.
+        </div>
+
+        <div class="simulator-layout">
+          <div class="card">
+            <p class="card-title">Describe a hypothetical transaction</p>
+            <form id="simulator-form" class="form-grid">
+              <div class="form-field">
+                <label for="sim-account">Account ID (optional — blank = brand-new account)</label>
+                <input class="input" list="sim-account-list" id="sim-account" placeholder="e.g. AC00128" />
+                <datalist id="sim-account-list"></datalist>
+              </div>
+              <div class="form-field">
+                <label for="sim-amount">Transaction amount</label>
+                <input class="input" type="number" id="sim-amount" min="0.01" step="0.01" value="150" required />
+              </div>
+              <div class="form-field">
+                <label for="sim-type">Transaction type</label>
+                <select class="select" id="sim-type"><option>Debit</option><option>Credit</option></select>
+              </div>
+              <div class="form-field">
+                <label for="sim-channel">Channel</label>
+                <select class="select" id="sim-channel"><option>ATM</option><option>Online</option><option>Branch</option></select>
+              </div>
+              <div class="form-field">
+                <label for="sim-location">Location</label>
+                <select class="select" id="sim-location"></select>
+              </div>
+              <div class="form-field">
+                <label for="sim-occupation">Customer occupation</label>
+                <select class="select" id="sim-occupation"></select>
+              </div>
+              <div class="form-field">
+                <label for="sim-device">Device ID</label>
+                <input class="input" list="sim-device-list" id="sim-device" placeholder="e.g. D000553 or a new ID" />
+                <datalist id="sim-device-list"></datalist>
+              </div>
+              <div class="form-field">
+                <label for="sim-ip">IP address</label>
+                <input class="input" id="sim-ip" value="10.0.0.1" />
+              </div>
+              <div class="form-field">
+                <label for="sim-merchant">Merchant ID</label>
+                <input class="input" list="sim-merchant-list" id="sim-merchant" placeholder="e.g. M060" />
+                <datalist id="sim-merchant-list"></datalist>
+              </div>
+              <div class="form-field">
+                <label for="sim-age">Customer age</label>
+                <input class="input" type="number" id="sim-age" min="18" max="100" value="35" required />
+              </div>
+              <div class="form-field">
+                <label for="sim-duration">Transaction duration (seconds)</label>
+                <input class="input" type="number" id="sim-duration" min="1" value="90" required />
+              </div>
+              <div class="form-field">
+                <label for="sim-login">Login attempts</label>
+                <input class="input" type="number" id="sim-login" min="1" max="10" value="1" required />
+              </div>
+              <div class="form-field">
+                <label for="sim-balance">Account balance</label>
+                <input class="input" type="number" id="sim-balance" min="0" step="0.01" value="5000" required />
+              </div>
+              <div class="form-actions">
+                <button class="btn btn-primary" type="submit">Score this transaction</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="card" id="simulator-result-card" style="display:none">
+            <p class="card-title">Result</p>
+            <div class="result-verdict-row">
+              <span id="sim-verdict-badge"></span>
+            </div>
+            <div class="result-score tabular" id="sim-score"></div>
+            <p class="card-subtitle" id="sim-thresholds-note"></p>
+            <div class="drawer-section-title">Top contributing features</div>
+            <div id="chart-sim-shap"></div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<div id="drawer-backdrop"></div>
+<aside id="detail-drawer">
+  <div class="drawer-header">
+    <div>
+      <h3 id="drawer-title"></h3>
+      <div class="topbar-sub" id="drawer-subtitle"></div>
+    </div>
+    <button class="drawer-close" id="drawer-close-btn"></button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+
+<div class="toast-stack" id="toast-stack"></div>
+
+<script src="js/icons.js"></script>
+<script src="js/format.js"></script>
+<script src="js/api.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

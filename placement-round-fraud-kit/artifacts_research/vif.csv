@@ -1,0 +1,6 @@
+feature,R2_vs_other_features,VIF
+TransactionAmount,0.0011,1.001
+CustomerAge,0.1031,1.115
+TransactionDuration,0.0015,1.002
+LoginAttempts,0.0014,1.001
+AccountBalance,0.1029,1.115

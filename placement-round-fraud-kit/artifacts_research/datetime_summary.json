@@ -1,0 +1,54 @@
+{
+  "TransactionDate": {
+    "min": "2023-01-02 16:00:00",
+    "max": "2024-01-01 18:21:00",
+    "span_days": 364,
+    "day_of_week_counts": {
+      "Monday": 1070,
+      "Tuesday": 360,
+      "Wednesday": 341,
+      "Thursday": 368,
+      "Friday": 373,
+      "Saturday": 0,
+      "Sunday": 0
+    },
+    "hour_of_day_counts": {
+      "16": 1316,
+      "17": 819,
+      "18": 377
+    },
+    "month_counts": {
+      "2023-01": 207,
+      "2023-02": 218,
+      "2023-03": 197,
+      "2023-04": 161,
+      "2023-05": 220,
+      "2023-06": 212,
+      "2023-07": 195,
+      "2023-08": 224,
+      "2023-09": 214,
+      "2023-10": 226,
+      "2023-11": 221,
+      "2023-12": 204,
+      "2024-01": 13
+    }
+  },
+  "PreviousTransactionDate": {
+    "n_unique_values": 7,
+    "min": "2024-11-04 08:06:00",
+    "max": "2024-11-04 08:12:00",
+    "span_minutes": 6.0,
+    "center_timestamp": "2024-11-04 08:09:00",
+    "value_counts": {
+      "2024-11-04 08:06:00": 240,
+      "2024-11-04 08:07:00": 435,
+      "2024-11-04 08:08:00": 431,
+      "2024-11-04 08:09:00": 430,
+      "2024-11-04 08:10:00": 391,
+      "2024-11-04 08:11:00": 423,
+      "2024-11-04 08:12:00": 162
+    },
+    "artifact_confirmed": true,
+    "note": "Only 7 distinct timestamps across 2512 rows, all falling within a 6.0-minute window on 2024-11-04. This is a single bulk data-export moment, not per-account transaction history."
+  }
+}

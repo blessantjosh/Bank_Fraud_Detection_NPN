@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fraud Detection Console</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f6fa;
+    --surface: #ffffff;
+    --surface-2: #fbfbfa;
+    --border: rgba(13,20,33,0.09);
+    --border-strong: rgba(13,20,33,0.16);
+    --text-primary: #0d1421;
+    --text-secondary: #4b5468;
+    --muted: #868da3;
+    --accent: #2860c4;
+    --accent-strong: #163f8c;
+    --accent-wash: rgba(40,96,196,0.09);
+    --good: #0a8a3f;
+    --good-wash: rgba(10,138,63,0.10);
+    --warning: #a6690a;
+    --warning-wash: rgba(166,105,10,0.11);
+    --critical: #c02f2f;
+    --critical-wash: rgba(192,47,47,0.10);
+    --shadow: 0 1px 2px rgba(13,20,33,0.05), 0 10px 28px -14px rgba(13,20,33,0.18);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0a0d13;
+    --surface: #131822;
+    --surface-2: #171d29;
+    --border: rgba(255,255,255,0.09);
+    --border-strong: rgba(255,255,255,0.17);
+    --text-primary: #eef1f7;
+    --text-secondary: #aeb6c9;
+    --muted: #7d84990b;
+    --muted: #838ba1;
+    --accent: #5a90e6;
+    --accent-strong: #8fb6f2;
+    --accent-wash: rgba(90,144,230,0.14);
+    --good: #3fcf7f;
+    --good-wash: rgba(63,207,127,0.13);
+    --warning: #e0ac3d;
+    --warning-wash: rgba(224,172,61,0.13);
+    --critical: #ea7373;
+    --critical-wash: rgba(234,115,115,0.13);
+    --shadow: 0 1px 2px rgba(0,0,0,0.35), 0 10px 28px -14px rgba(0,0,0,0.6);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0a0d13;
+      --surface: #131822;
+      --surface-2: #171d29;
+      --border: rgba(255,255,255,0.09);
+      --border-strong: rgba(255,255,255,0.17);
+      --text-primary: #eef1f7;
+      --text-secondary: #aeb6c9;
+      --muted: #838ba1;
+      --accent: #5a90e6;
+      --accent-strong: #8fb6f2;
+      --accent-wash: rgba(90,144,230,0.14);
+      --good: #3fcf7f;
+      --good-wash: rgba(63,207,127,0.13);
+      --warning: #e0ac3d;
+      --warning-wash: rgba(224,172,61,0.13);
+      --critical: #ea7373;
+      --critical-wash: rgba(234,115,115,0.13);
+      --shadow: 0 1px 2px rgba(0,0,0,0.35), 0 10px 28px -14px rgba(0,0,0,0.6);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, select { font-family: inherit; }
+  .hidden { display: none !important; }
+
+  /* ---------- Login screen ---------- */
+  #login-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .login-card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    padding: 32px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .login-brand { display: flex; align-items: center; gap: 10px; }
+  .login-brand .mark {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 15px; flex-shrink: 0;
+  }
+  .login-brand h1 { font-size: 16px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  .login-brand .sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+  .field input {
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text-primary);
+    border-radius: 9px;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  .field input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .btn {
+    border: none; border-radius: 9px; padding: 10px 16px;
+    font-size: 14px; font-weight: 700; cursor: pointer;
+    background: var(--accent); color: #fff;
+  }
+  .btn:hover { background: var(--accent-strong); }
+  .btn:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+  .btn.secondary { background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border-strong); }
+  .btn.small { padding: 6px 12px; font-size: 12.5px; }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .error-msg {
+    font-size: 12.5px; color: var(--critical); background: var(--critical-wash);
+    border: 1px solid color-mix(in srgb, var(--critical) 35%, var(--border));
+    border-radius: 8px; padding: 8px 10px;
+  }
+  .hint { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+
+  /* ---------- App shell ---------- */
+  #app-screen { min-height: 100vh; display: flex; flex-direction: column; }
+  header.topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 22px; border-bottom: 1px solid var(--border);
+    background: var(--surface); position: sticky; top: 0; z-index: 10;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 10px; }
+  .topbar-left .mark {
+    width: 28px; height: 28px; border-radius: 8px; background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px;
+  }
+  .topbar-left h1 { font-size: 14.5px; font-weight: 700; margin: 0; }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+  .role-pill {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.03em;
+    padding: 4px 10px; border-radius: 999px;
+    background: var(--accent-wash); color: var(--accent-strong);
+  }
+  .user-email { font-size: 12.5px; color: var(--text-secondary); }
+  .icon-btn {
+    border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-primary);
+    border-radius: 8px; padding: 6px 10px; font-size: 12.5px; cursor: pointer;
+  }
+
+  main { flex: 1; max-width: 1180px; width: 100%; margin: 0 auto; padding: 22px 22px 60px; display: flex; flex-direction: column; gap: 20px; }
+
+  .banner {
+    display: flex; align-items: center; gap: 10px;
+    border-radius: 12px; padding: 10px 14px; font-size: 13px; font-weight: 600;
+  }
+  .banner.warn { background: var(--warning-wash); color: var(--warning); border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border)); }
+  .banner.crit { background: var(--critical-wash); color: var(--critical); border: 1px solid color-mix(in srgb, var(--critical) 35%, var(--border)); }
+  .banner.good { background: var(--good-wash); color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 35%, var(--border)); }
+  .banner .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .stat-tile {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 18px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 5px;
+  }
+  .stat-tile .label { font-size: 11.5px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+  .stat-tile .value { font-size: 24px; font-weight: 800; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+  .stat-tile .sub { font-size: 11.5px; color: var(--muted); }
+  .stat-tile.ok .value { color: var(--good); }
+  .stat-tile.bad .value { color: var(--critical); }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 20px 22px 22px; box-shadow: var(--shadow);
+  }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .card-head h2 { font-size: 15px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  .card-head .tag { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; padding: 0 10px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--border); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: none; }
+  td.strong { color: var(--text-primary); font-weight: 600; }
+  .table-wrap { overflow-x: auto; }
+  .empty-row td { color: var(--muted); font-style: italic; text-align: center; padding: 18px; }
+
+  .risk-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; }
+  .risk-LOW { background: var(--good-wash); color: var(--good); }
+  .risk-MEDIUM { background: var(--warning-wash); color: var(--warning); }
+  .risk-HIGH, .risk-CRITICAL { background: var(--critical-wash); color: var(--critical); }
+  .risk-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px 14px; }
+  .field-grid .field input, .field-grid .field select {
+    border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-primary);
+    border-radius: 8px; padding: 7px 9px; font-size: 13px; width: 100%;
+  }
+  .section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); margin: 16px 0 8px; }
+  .section-title:first-of-type { margin-top: 0; }
+
+  .predict-result { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-top: 14px; padding: 14px 16px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); }
+  .predict-result .prob { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .predict-result .meta { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+
+  .grid-2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } .stat-row { grid-template-columns: repeat(2, 1fr); } }
+
+  form.inline-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .toast {
+    position: fixed; bottom: 20px; right: 20px; z-index: 50;
+    background: var(--surface); border: 1px solid var(--border-strong); box-shadow: var(--shadow);
+    border-radius: 10px; padding: 10px 16px; font-size: 13px; font-weight: 600;
+    max-width: 340px;
+  }
+  .toast.err { color: var(--critical); }
+  .toast.ok { color: var(--good); }
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="mark">FD</div>
+      <div>
+        <h1>Fraud Detection Console</h1>
+        <div class="sub">Sign in with your account</div>
+      </div>
+    </div>
+
+    <form id="login-form" style="display:flex; flex-direction:column; gap:14px;">
+      <div class="field">
+        <label for="login-email">Email</label>
+        <input id="login-email" type="email" required autocomplete="username">
+      </div>
+      <div class="field">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" required autocomplete="current-password">
+      </div>
+      <div id="login-error" class="error-msg hidden"></div>
+      <button class="btn" type="submit" id="login-submit">Sign in</button>
+    </form>
+
+    <form id="mfa-form" class="hidden" style="display:flex; flex-direction:column; gap:14px;">
+      <div class="field">
+        <label for="mfa-code">6-digit authenticator code</label>
+        <input id="mfa-code" inputmode="numeric" pattern="\d{6}" maxlength="6" required>
+      </div>
+      <div id="mfa-error" class="error-msg hidden"></div>
+      <button class="btn" type="submit">Verify</button>
+    </form>
+
+    <div class="hint">This console calls the live API directly — every action here is a real, authenticated, audited request against the running fraud-detection service. Nothing is simulated.</div>
+  </div>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="app-screen" class="hidden">
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="mark">FD</div>
+      <h1>Fraud Detection Console</h1>
+    </div>
+    <div class="topbar-right">
+      <span class="user-email" id="user-email"></span>
+      <span class="role-pill" id="role-pill"></span>
+      <button class="icon-btn" id="theme-toggle" title="Toggle theme">🌓</button>
+      <button class="icon-btn" id="logout-btn">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="banners"></div>
+
+    <div class="stat-row">
+      <div class="stat-tile">
+        <div class="label">Model</div>
+        <div class="value" id="stat-model" style="font-size:17px;">--</div>
+        <div class="sub" id="stat-model-sub">--</div>
+      </div>
+      <div class="stat-tile">
+        <div class="label">Decision threshold</div>
+        <div class="value" id="stat-threshold">--</div>
+        <div class="sub">Fraud probability cutoff</div>
+      </div>
+      <div class="stat-tile">
+        <div class="label">Recent volume</div>
+        <div class="value" id="stat-volume">--</div>
+        <div class="sub">Rows scored, last batches shown below</div>
+      </div>
+      <div class="stat-tile" id="stat-highrisk-tile">
+        <div class="label">High / Critical flags</div>
+        <div class="value" id="stat-highrisk">--</div>
+        <div class="sub">Across recent batches</div>
+      </div>
+    </div>
+
+    <section class="card" id="predict-card">
+      <div class="card-head">
+        <h2>Score an application</h2>
+        <span class="tag">POST /predict &middot; real model, real request</span>
+      </div>
+      <form id="predict-form">
+        <div class="section-title">Identity &amp; profile</div>
+        <div class="field-grid" id="grp-identity"></div>
+        <div class="section-title">Address &amp; history</div>
+        <div class="field-grid" id="grp-address"></div>
+        <div class="section-title">Velocity &amp; clustering</div>
+        <div class="field-grid" id="grp-velocity"></div>
+        <div class="section-title">Contactability &amp; device</div>
+        <div class="field-grid" id="grp-device"></div>
+        <div class="section-title">Product &amp; risk</div>
+        <div class="field-grid" id="grp-risk"></div>
+        <button class="btn" type="submit" style="margin-top:16px;">Score this application</button>
+      </form>
+      <div id="predict-result" class="predict-result hidden"></div>
+    </section>
+
+    <div class="grid-2">
+      <section class="card">
+        <div class="card-head">
+          <h2>Recent predictions</h2>
+          <span class="tag">GET /predictions</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Model</th><th>Rows</th><th>Risk breakdown</th><th>Threshold</th></tr></thead>
+            <tbody id="predictions-tbody"><tr class="empty-row"><td colspan="5">Loading&hellip;</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card" id="threshold-card">
+        <div class="card-head">
+          <h2>Decision threshold</h2>
+          <span class="tag">PATCH /settings/threshold</span>
+        </div>
+        <p class="hint" style="margin-top:0;">Applications scoring above this probability are flagged as fraud. Lower = catch more fraud, more false positives. Higher = fewer false positives, more fraud missed.</p>
+        <form id="threshold-form" class="inline-form">
+          <div class="field" style="flex:1; min-width:120px;">
+            <label for="threshold-input">New threshold (0&ndash;1)</label>
+            <input id="threshold-input" type="number" step="0.01" min="0" max="1">
+          </div>
+          <button class="btn" type="submit">Update</button>
+        </form>
+      </section>
+    </div>
+
+    <section class="card" id="audit-card">
+      <div class="card-head">
+        <h2>Audit log</h2>
+        <span class="tag">GET /audit-logs</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th><th>Result</th><th>Detail</th></tr></thead>
+          <tbody id="audit-tbody"><tr class="empty-row"><td colspan="6">Loading&hellip;</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card" id="users-card">
+      <div class="card-head">
+        <h2>Users</h2>
+        <span class="tag">GET / POST /admin/users</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Email</th><th>Role</th><th>MFA</th><th>Status</th><th>Created</th></tr></thead>
+          <tbody id="users-tbody"><tr class="empty-row"><td colspan="5">Loading&hellip;</td></tr></tbody>
+        </table>
+      </div>
+      <form id="create-user-form" class="inline-form" style="margin-top:16px;">
+        <div class="field"><label>Email</label><input type="email" id="new-user-email" required></div>
+        <div class="field"><label>Password</label><input type="password" id="new-user-password" required minlength="10"></div>
+        <div class="field">
+          <label>Role</label>
+          <select id="new-user-role">
+            <option value="VIEWER">Viewer</option>
+            <option value="FRAUD_ANALYST">Fraud Analyst</option>
+            <option value="RISK_MANAGER">Risk Manager</option>
+            <option value="AUDITOR">Auditor</option>
+            <option value="ADMIN">Admin</option>
+          </select>
+        </div>
+        <button class="btn" type="submit">Create user</button>
+      </form>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const API = ""; // same origin
+
+  // ---- theme ----
+  const themeToggle = document.getElementById("theme-toggle");
+  themeToggle.addEventListener("click", function () {
+    const cur = document.documentElement.getAttribute("data-theme");
+    document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+  });
+
+  // ---- session state ----
+  let session = {
+    access: sessionStorage.getItem("fd_access") || null,
+    refresh: sessionStorage.getItem("fd_refresh") || null,
+    email: sessionStorage.getItem("fd_email") || null,
+    role: null,
+  };
+
+  function decodeRole(token) {
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+      return payload.role || null;
+    } catch (e) { return null; }
+  }
+
+  function saveSession() {
+    if (session.access) sessionStorage.setItem("fd_access", session.access);
+    if (session.refresh) sessionStorage.setItem("fd_refresh", session.refresh);
+    if (session.email) sessionStorage.setItem("fd_email", session.email);
+  }
+  function clearSession() {
+    session = { access: null, refresh: null, email: null, role: null };
+    sessionStorage.removeItem("fd_access");
+    sessionStorage.removeItem("fd_refresh");
+    sessionStorage.removeItem("fd_email");
+  }
+
+  // ---- toast ----
+  function toast(msg, kind) {
+    const el = document.createElement("div");
+    el.className = "toast " + (kind || "");
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(function () { el.remove(); }, 4000);
+  }
+
+  // ---- API helper with auto-refresh-on-401 ----
+  async function api(path, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({}, opts.headers || {});
+    if (session.access) opts.headers["Authorization"] = "Bearer " + session.access;
+    if (opts.body && typeof opts.body !== "string") {
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(opts.body);
+    }
+    let res = await fetch(API + path, opts);
+    if (res.status === 401 && session.refresh) {
+      const rr = await fetch(API + "/auth/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: session.refresh }),
+      });
+      if (rr.ok) {
+        const data = await rr.json();
+        session.access = data.access_token;
+        session.refresh = data.refresh_token;
+        saveSession();
+        opts.headers["Authorization"] = "Bearer " + session.access;
+        res = await fetch(API + path, opts);
+      } else {
+        doLogout();
+        throw new Error("Session expired — please sign in again.");
+      }
+    }
+    return res;
+  }
+
+  // ---- login flow ----
+  let pendingMfaToken = null;
+
+  document.getElementById("login-form").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const email = document.getElementById("login-email").value;
+    const password = document.getElementById("login-password").value;
+    const errEl = document.getElementById("login-error");
+    errEl.classList.add("hidden");
+    const submitBtn = document.getElementById("login-submit");
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch(API + "/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email, password: password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errEl.textContent = (data && data.detail) || "Sign-in failed.";
+        errEl.classList.remove("hidden");
+        return;
+      }
+      if (data.mfa_required) {
+        pendingMfaToken = data.mfa_token;
+        document.getElementById("login-form").classList.add("hidden");
+        document.getElementById("mfa-form").classList.remove("hidden");
+        return;
+      }
+      session.access = data.access_token;
+      session.refresh = data.refresh_token;
+      session.email = email;
+      session.role = decodeRole(data.access_token);
+      saveSession();
+      enterApp();
+    } catch (err) {
+      errEl.textContent = "Could not reach the server. Is it running?";
+      errEl.classList.remove("hidden");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  document.getElementById("mfa-form").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const code = document.getElementById("mfa-code").value;
+    const errEl = document.getElementById("mfa-error");
+    errEl.classList.add("hidden");
+    try {
+      const res = await fetch(API + "/auth/mfa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mfa_token: pendingMfaToken, code: code }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errEl.textContent = (data && data.detail) || "Invalid code.";
+        errEl.classList.remove("hidden");
+        return;
+      }
+      session.access = data.access_token;
+      session.refresh = data.refresh_token;
+      session.email = document.getElementById("login-email").value;
+      session.role = decodeRole(data.access_token);
+      saveSession();
+      enterApp();
+    } catch (err) {
+      errEl.textContent = "Could not reach the server.";
+      errEl.classList.remove("hidden");
+    }
+  });
+
+  function doLogout() {
+    clearSession();
+    document.getElementById("app-screen").classList.add("hidden");
+    document.getElementById("login-screen").classList.remove("hidden");
+    document.getElementById("login-form").classList.remove("hidden");
+    document.getElementById("mfa-form").classList.add("hidden");
+    document.getElementById("login-form").reset();
+  }
+  document.getElementById("logout-btn").addEventListener("click", doLogout);
+
+  // ---- role-based section visibility ----
+  const ROLE_LABELS = {
+    ADMIN: "Admin", FRAUD_ANALYST: "Fraud Analyst", RISK_MANAGER: "Risk Manager",
+    AUDITOR: "Auditor", VIEWER: "Viewer",
+  };
+  function canPredict(role) { return ["ADMIN", "RISK_MANAGER", "FRAUD_ANALYST"].indexOf(role) !== -1; }
+  function canChangeThreshold(role) { return ["ADMIN", "RISK_MANAGER"].indexOf(role) !== -1; }
+  function canViewAudit(role) { return ["ADMIN", "RISK_MANAGER", "AUDITOR", "FRAUD_ANALYST"].indexOf(role) !== -1; }
+  function isAdmin(role) { return role === "ADMIN"; }
+
+  function applyRoleVisibility() {
+    document.getElementById("predict-card").classList.toggle("hidden", !canPredict(session.role));
+    document.getElementById("threshold-card").classList.toggle("hidden", !canChangeThreshold(session.role));
+    document.getElementById("audit-card").classList.toggle("hidden", !canViewAudit(session.role));
+    document.getElementById("users-card").classList.toggle("hidden", !isAdmin(session.role));
+  }
+
+  function banner(msg, kind) {
+    const wrap = document.getElementById("banners");
+    const el = document.createElement("div");
+    el.className = "banner " + kind;
+    el.innerHTML = '<span class="dot"></span><span></span>';
+    el.querySelector("span:last-child").textContent = msg;
+    wrap.appendChild(el);
+  }
+
+  // ---- application form fields ----
+  const APP_FIELDS = [
+    { key: "customer_age", group: "grp-identity", label: "Applicant age", type: "number", def: 32, min: 10, max: 100, step: 1 },
+    { key: "income", group: "grp-identity", label: "Income decile", type: "number", def: 0.5, min: 0, max: 1, step: 0.01 },
+    { key: "name_email_similarity", group: "grp-identity", label: "Name/email similarity", type: "number", def: 0.6, min: 0, max: 1, step: 0.01 },
+    { key: "email_is_free", group: "grp-identity", label: "Free email? (0/1)", type: "number", def: 0, min: 0, max: 1, step: 1 },
+    { key: "employment_status", group: "grp-identity", label: "Employment status", type: "text", def: "CA" },
+    { key: "housing_status", group: "grp-identity", label: "Housing status", type: "text", def: "BC" },
+    { key: "source", group: "grp-identity", label: "Channel", type: "text", def: "INTERNET" },
+    { key: "month", group: "grp-identity", label: "Month index (0-11)", type: "number", def: 3, min: 0, max: 11, step: 1 },
+
+    { key: "prev_address_months_count", group: "grp-address", label: "Prev address (months, -1=none)", type: "number", def: 24, min: -1, max: 500, step: 1 },
+    { key: "current_address_months_count", group: "grp-address", label: "Current address (months)", type: "number", def: 36, min: -1, max: 500, step: 1 },
+    { key: "bank_months_count", group: "grp-address", label: "Bank tenure (months, -1=none)", type: "number", def: 12, min: -1, max: 60, step: 1 },
+    { key: "days_since_request", group: "grp-address", label: "Days since request", type: "number", def: 1, min: 0, max: 200, step: 0.1 },
+
+    { key: "velocity_6h", group: "grp-velocity", label: "Applications/hr (6h)", type: "number", def: 4000, min: -1000, max: 30000, step: 10 },
+    { key: "velocity_24h", group: "grp-velocity", label: "Applications/hr (24h)", type: "number", def: 4500, min: -1000, max: 30000, step: 10 },
+    { key: "velocity_4w", group: "grp-velocity", label: "Applications/hr (4w)", type: "number", def: 5000, min: -1000, max: 30000, step: 10 },
+    { key: "zip_count_4w", group: "grp-velocity", label: "Apps from ZIP (4w)", type: "number", def: 200, min: 0, max: 10000, step: 1 },
+    { key: "bank_branch_count_8w", group: "grp-velocity", label: "Apps at branch (8w)", type: "number", def: 50, min: 0, max: 5000, step: 1 },
+    { key: "date_of_birth_distinct_emails_4w", group: "grp-velocity", label: "Emails sharing DOB (4w)", type: "number", def: 1, min: 0, max: 100, step: 1 },
+
+    { key: "phone_home_valid", group: "grp-device", label: "Home phone valid (0/1)", type: "number", def: 1, min: 0, max: 1, step: 1 },
+    { key: "phone_mobile_valid", group: "grp-device", label: "Mobile valid (0/1)", type: "number", def: 1, min: 0, max: 1, step: 1 },
+    { key: "foreign_request", group: "grp-device", label: "Foreign request (0/1)", type: "number", def: 0, min: 0, max: 1, step: 1 },
+    { key: "device_os", group: "grp-device", label: "Device OS", type: "text", def: "windows" },
+    { key: "device_distinct_emails_8w", group: "grp-device", label: "Device emails 8w (-1=missing)", type: "number", def: 1, min: -1, max: 5, step: 1 },
+    { key: "session_length_in_minutes", group: "grp-device", label: "Session length (min)", type: "number", def: 8, min: -1, max: 300, step: 0.1 },
+    { key: "keep_alive_session", group: "grp-device", label: "Kept session alive (0/1)", type: "number", def: 1, min: 0, max: 1, step: 1 },
+
+    { key: "credit_risk_score", group: "grp-risk", label: "Credit risk score", type: "number", def: 100, min: -500, max: 1000, step: 1 },
+    { key: "proposed_credit_limit", group: "grp-risk", label: "Proposed credit limit", type: "number", def: 1000, min: 0, max: 10000, step: 10 },
+    { key: "payment_type", group: "grp-risk", label: "Payment plan", type: "text", def: "AA" },
+    { key: "has_other_cards", group: "grp-risk", label: "Has other cards (0/1)", type: "number", def: 0, min: 0, max: 1, step: 1 },
+    { key: "intended_balcon_amount", group: "grp-risk", label: "Initial transfer (-1=none)", type: "number", def: -1, min: -100, max: 500, step: 1 },
+    { key: "device_fraud_count", group: "grp-risk", label: "Device fraud count", type: "number", def: 0, min: 0, max: 1, step: 1 },
+  ];
+
+  function buildPredictForm() {
+    APP_FIELDS.forEach(function (f) {
+      const wrap = document.createElement("div");
+      wrap.className = "field";
+      const lbl = document.createElement("label");
+      lbl.textContent = f.label;
+      lbl.htmlFor = "f_" + f.key;
+      const input = document.createElement("input");
+      input.id = "f_" + f.key;
+      input.type = f.type;
+      input.value = f.def;
+      if (f.type === "number") { input.min = f.min; input.max = f.max; input.step = f.step; }
+      wrap.appendChild(lbl); wrap.appendChild(input);
+      document.getElementById(f.group).appendChild(wrap);
+    });
+  }
+
+  document.getElementById("predict-form").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const row = {};
+    APP_FIELDS.forEach(function (f) {
+      const el = document.getElementById("f_" + f.key);
+      row[f.key] = f.type === "number" ? parseFloat(el.value) : el.value;
+    });
+    // integer-typed fields must not be sent as floats
+    ["customer_age", "prev_address_months_count", "current_address_months_count",
+     "bank_months_count", "zip_count_4w", "bank_branch_count_8w",
+     "date_of_birth_distinct_emails_4w", "phone_home_valid", "phone_mobile_valid",
+     "email_is_free", "foreign_request", "device_distinct_emails_8w",
+     "keep_alive_session", "has_other_cards", "month", "device_fraud_count"
+    ].forEach(function (k) { row[k] = Math.round(row[k]); });
+
+    const resultEl = document.getElementById("predict-result");
+    resultEl.classList.add("hidden");
+    try {
+      const res = await api("/predict", { method: "POST", body: { rows: [row] } });
+      const data = await res.json();
+      if (!res.ok) { toast((data && data.detail) || "Prediction failed", "err"); return; }
+      const p = data.predictions[0];
+      resultEl.classList.remove("hidden");
+      let featuresHtml = "";
+      if (p.top_features && p.top_features.length) {
+        featuresHtml = "<div class='meta'><b>Top factors:</b> " +
+          p.top_features.slice(0, 4).map(function (f) {
+            return f.feature + " (" + (f.contribution >= 0 ? "+" : "") + f.contribution.toFixed(3) + ")";
+          }).join(", ") + "</div>";
+      }
+      resultEl.innerHTML =
+        '<div class="prob" style="color:' + (p.fraud_prediction ? "var(--critical)" : "var(--good)") + '">' +
+        (p.fraud_probability * 100).toFixed(2) + '%</div>' +
+        '<div class="meta">' +
+        '<div><span class="risk-pill risk-' + p.risk_level + '"><span class="dot"></span>' + p.risk_level + '</span> &middot; model ' + data.model_version + ' &middot; threshold ' + data.threshold_used.toFixed(2) + '</div>' +
+        featuresHtml +
+        '</div>';
+      toast("Scored 1 application", "ok");
+      loadPredictions();
+      loadAudit();
+    } catch (err) {
+      toast(err.message || "Request failed", "err");
+    }
+  });
+
+  // ---- threshold ----
+  document.getElementById("threshold-form").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const val = parseFloat(document.getElementById("threshold-input").value);
+    if (isNaN(val)) return;
+    try {
+      const res = await api("/settings/threshold", { method: "PATCH", body: { threshold: val } });
+      const data = await res.json();
+      if (!res.ok) { toast((data && data.detail) || "Update failed", "err"); return; }
+      toast("Threshold updated to " + val, "ok");
+      loadHealth();
+    } catch (err) { toast(err.message || "Request failed", "err"); }
+  });
+
+  // ---- create user ----
+  document.getElementById("create-user-form").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const email = document.getElementById("new-user-email").value;
+    const password = document.getElementById("new-user-password").value;
+    const role = document.getElementById("new-user-role").value;
+    try {
+      const res = await api("/admin/users", { method: "POST", body: { email: email, password: password, role: role } });
+      const data = await res.json();
+      if (!res.ok) { toast((data && data.detail) || "Could not create user", "err"); return; }
+      toast("User created: " + email, "ok");
+      document.getElementById("create-user-form").reset();
+      loadUsers();
+    } catch (err) { toast(err.message || "Request failed", "err"); }
+  });
+
+  // ---- data loaders ----
+  function fmtTime(iso) {
+    try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
+  }
+
+  async function loadHealth() {
+    try {
+      const res = await fetch(API + "/health");
+      const data = await res.json();
+      document.getElementById("stat-model").textContent = data.model_loaded ? "Loaded" : "Not loaded";
+      document.getElementById("stat-model-sub").textContent =
+        (data.model_checksum_verified === true ? "Checksum verified" :
+         data.model_checksum_verified === false ? "Checksum NOT verified" : "Checksum check disabled");
+      if (!data.model_loaded) banner("The model failed to load — predictions will not work.", "crit");
+    } catch (e) {
+      banner("Could not reach the API health endpoint.", "crit");
+    }
+  }
+
+  async function loadPredictions() {
+    const tbody = document.getElementById("predictions-tbody");
+    try {
+      const res = await api("/predictions?limit=25");
+      if (res.status === 403) { tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Your role cannot view prediction history.</td></tr>'; return; }
+      const data = await res.json();
+      if (!data.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No predictions recorded yet — score an application above.</td></tr>'; }
+      else {
+        let totalRows = 0, highCrit = 0;
+        tbody.innerHTML = data.map(function (r) {
+          totalRows += r.input_row_count;
+          const badges = Object.keys(r.risk_level_counts).map(function (lv) {
+            if (lv === "HIGH" || lv === "CRITICAL") highCrit += r.risk_level_counts[lv];
+            return '<span class="risk-pill risk-' + lv + '"><span class="dot"></span>' + lv + ' ' + r.risk_level_counts[lv] + '</span>';
+          }).join(" ");
+          return "<tr><td>" + fmtTime(r.timestamp) + "</td><td class='strong'>" + r.model_version +
+            "</td><td>" + r.input_row_count + "</td><td>" + badges + "</td><td>" + r.threshold_used.toFixed(2) + "</td></tr>";
+        }).join("");
+        document.getElementById("stat-volume").textContent = totalRows.toLocaleString();
+        document.getElementById("stat-highrisk").textContent = highCrit.toLocaleString();
+      }
+      if (data.length) {
+        document.getElementById("stat-threshold").textContent = data[0].threshold_used.toFixed(2);
+      }
+    } catch (e) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Could not load predictions.</td></tr>';
+    }
+  }
+
+  async function loadAudit() {
+    const tbody = document.getElementById("audit-tbody");
+    try {
+      const res = await api("/audit-logs?limit=30");
+      if (res.status === 403) { tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Your role cannot view the audit log.</td></tr>'; return; }
+      const data = await res.json();
+      if (!data.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No audit entries yet.</td></tr>'; return; }
+      tbody.innerHTML = data.map(function (r) {
+        const resultColor = r.result === "SUCCESS" ? "var(--good)" : (r.result === "ERROR" ? "var(--critical)" : "inherit");
+        return "<tr><td>" + fmtTime(r.timestamp) + "</td><td>" + (r.user_id || "—").slice(0, 8) +
+          " <span style='color:var(--muted)'>(" + (r.role || "?") + ")</span></td><td class='strong'>" + r.action +
+          "</td><td>" + r.resource + "</td><td style='color:" + resultColor + "; font-weight:700;'>" + r.result +
+          "</td><td>" + (r.detail || "—") + "</td></tr>";
+      }).join("");
+    } catch (e) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Could not load audit log.</td></tr>';
+    }
+  }
+
+  async function loadUsers() {
+    const tbody = document.getElementById("users-tbody");
+    if (!isAdmin(session.role)) return;
+    try {
+      const res = await api("/admin/users");
+      const data = await res.json();
+      if (!res.ok) { tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Could not load users.</td></tr>'; return; }
+      tbody.innerHTML = data.map(function (u) {
+        return "<tr><td class='strong'>" + u.email + "</td><td>" + (ROLE_LABELS[u.role] || u.role) +
+          "</td><td>" + (u.mfa_enabled ? "Enabled" : "Off") + "</td><td>" + (u.is_active ? "Active" : "Disabled") +
+          "</td><td>" + fmtTime(u.created_at) + "</td></tr>";
+      }).join("");
+    } catch (e) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Could not load users.</td></tr>';
+    }
+  }
+
+  function enterApp() {
+    document.getElementById("login-screen").classList.add("hidden");
+    document.getElementById("app-screen").classList.remove("hidden");
+    document.getElementById("user-email").textContent = session.email || "";
+    document.getElementById("role-pill").textContent = ROLE_LABELS[session.role] || session.role || "Unknown role";
+    applyRoleVisibility();
+    loadHealth();
+    loadPredictions();
+    if (canViewAudit(session.role)) loadAudit();
+    if (isAdmin(session.role)) loadUsers();
+  }
+
+  buildPredictForm();
+
+  // resume session if we already have a token (page refresh)
+  if (session.access) {
+    session.role = decodeRole(session.access);
+    if (session.role) enterApp();
+    else clearSession();
+  }
+})();
+</script>
+</body>
+</html>

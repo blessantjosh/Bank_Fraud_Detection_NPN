@@ -1,0 +1,7 @@
+{
+  "n_rows": 2512,
+  "n_cols": 18,
+  "n_unique_accounts": 495,
+  "n_unique_transaction_ids": 2512,
+  "missing_values_total": 0
+}

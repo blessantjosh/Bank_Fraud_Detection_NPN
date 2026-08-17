@@ -1,0 +1,11 @@
+feature,shap_value
+housing_status,0.9780652898634183
+customer_age,0.8714984786308585
+device_os,0.7631180729793863
+date_of_birth_distinct_emails_4w,0.5334878062789199
+keep_alive_session,0.35208255924745363
+has_other_cards,0.288741163841576
+phone_home_valid,0.25333281390710954
+limit_per_risk,0.2010587638621631
+employment_status,0.1749492630362074
+email_mismatch_free,0.17027623578941248

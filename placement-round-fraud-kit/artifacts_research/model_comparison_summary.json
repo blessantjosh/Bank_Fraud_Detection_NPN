@@ -1,0 +1,31 @@
+{
+  "anomaly_rates_pct": {
+    "isolation_forest": 5.33,
+    "lof": 4.86,
+    "ocsvm": 5.21,
+    "elliptic_envelope": 4.62,
+    "dbscan": 1.23,
+    "hdbscan": 53.94,
+    "kmeans": 5.02,
+    "gmm": 5.02,
+    "autoencoder": 5.02,
+    "vae": 5.02,
+    "lstm_ae": 4.82,
+    "hybrid_ensemble": 3.74
+  },
+  "spearman_vs_v1_anomaly_votes_ROUGH_PROXY_NOT_GROUND_TRUTH": {
+    "isolation_forest": 0.4029,
+    "lof": 0.4276,
+    "ocsvm": 0.2881,
+    "elliptic_envelope": 0.3228,
+    "dbscan": 0.1176,
+    "hdbscan": 0.3931,
+    "kmeans": 0.28,
+    "gmm": 0.2355,
+    "autoencoder": 0.3862,
+    "vae": 0.3849,
+    "lstm_ae": 0.3294,
+    "hybrid_ensemble": 0.4567
+  },
+  "note": "v1's anomaly_votes.csv vote_count (0-4) is a rough, weak proxy from a different, smaller 4-detector v1 pipeline on a different (18-column, pre-scaled) feature set -- used here only as a directionally-informative cross-check, never as ground truth, since no fraud label exists anywhere in this project."
+}

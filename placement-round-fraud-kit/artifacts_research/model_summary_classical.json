@@ -1,0 +1,394 @@
+{
+  "isolation_forest": {
+    "configs_tried": [
+      {
+        "n_estimators": 100,
+        "max_samples": "auto",
+        "contamination": 0.05,
+        "max_features": 1.0,
+        "native_anomaly_rate": 0.05334394904458599,
+        "top5pct_score_std": 0.035744568318991254
+      },
+      {
+        "n_estimators": 200,
+        "max_samples": 0.8,
+        "contamination": 0.05,
+        "max_features": 1.0,
+        "native_anomaly_rate": 0.054140127388535034,
+        "top5pct_score_std": 0.033074688408535384
+      },
+      {
+        "n_estimators": 300,
+        "max_samples": 0.5,
+        "contamination": 0.05,
+        "max_features": 0.7,
+        "native_anomaly_rate": 0.054538216560509556,
+        "top5pct_score_std": 0.03209995125444717
+      },
+      {
+        "n_estimators": 200,
+        "max_samples": "auto",
+        "contamination": 0.1,
+        "max_features": 1.0,
+        "native_anomaly_rate": 0.10390127388535032,
+        "top5pct_score_std": 0.03377175542049715
+      },
+      {
+        "n_estimators": 200,
+        "max_samples": "auto",
+        "contamination": 0.03,
+        "max_features": 1.0,
+        "native_anomaly_rate": 0.03184713375796178,
+        "top5pct_score_std": 0.03377175542049716
+      }
+    ],
+    "selected_config": {
+      "n_estimators": 100,
+      "max_samples": "auto",
+      "contamination": 0.05,
+      "max_features": 1.0
+    },
+    "selected_native_anomaly_rate": 0.0533,
+    "fit_time_sec_all_configs": 11.224,
+    "cost_note": "O(n log n) per tree, trivially parallel across trees and rows; fit + score of 5 configs x 2,512 rows x 46 features took 11.22s total on CPU -- cheapest model in this comparison and the only one of the 8 classical models with a native, well-understood out-of-sample .decision_function for production scoring."
+  },
+  "lof": {
+    "configs_tried": [
+      {
+        "n_neighbors": 10,
+        "contamination": 0.05,
+        "native_anomaly_rate": 0.042993630573248405
+      },
+      {
+        "n_neighbors": 20,
+        "contamination": 0.05,
+        "native_anomaly_rate": 0.04856687898089172
+      },
+      {
+        "n_neighbors": 35,
+        "contamination": 0.05,
+        "native_anomaly_rate": 0.046974522292993634
+      },
+      {
+        "n_neighbors": 20,
+        "contamination": 0.1,
+        "native_anomaly_rate": 0.0911624203821656
+      },
+      {
+        "n_neighbors": 20,
+        "contamination": 0.03,
+        "native_anomaly_rate": 0.027070063694267517
+      }
+    ],
+    "selected_config": {
+      "n_neighbors": 20,
+      "contamination": 0.05
+    },
+    "selected_native_anomaly_rate": 0.0486,
+    "fit_time_sec_all_configs": 5.264,
+    "cost_note": "O(n^2) neighbor search by default (no index acceleration benefit at n=2,512, but this does not scale past low tens-of-thousands of rows without an ANN index); novelty=True mode used so it can score new transactions without refitting -- required for any production use."
+  },
+  "ocsvm": {
+    "configs_tried": [
+      {
+        "kernel": "rbf",
+        "nu": 0.05,
+        "gamma": "scale",
+        "native_anomaly_rate": 0.05214968152866242
+      },
+      {
+        "kernel": "rbf",
+        "nu": 0.05,
+        "gamma": "auto",
+        "native_anomaly_rate": 0.06050955414012739
+      },
+      {
+        "kernel": "rbf",
+        "nu": 0.1,
+        "gamma": "scale",
+        "native_anomaly_rate": 0.1035031847133758
+      },
+      {
+        "kernel": "linear",
+        "nu": 0.05,
+        "gamma": "scale",
+        "native_anomaly_rate": 0.052547770700636945
+      },
+      {
+        "kernel": "poly",
+        "nu": 0.05,
+        "gamma": "scale",
+        "native_anomaly_rate": 0.08558917197452229
+      }
+    ],
+    "selected_config": {
+      "kernel": "rbf",
+      "nu": 0.05,
+      "gamma": "scale"
+    },
+    "selected_native_anomaly_rate": 0.0521,
+    "fit_time_sec_all_configs": 2.524,
+    "cost_note": "SMO-based QP solve, roughly O(n^2)-O(n^3) depending on kernel and how many points end up as support vectors; on this dataset it was the slowest of the 8 classical models to fit (2.52s for 5 configs) -- fine at n=2,512 but a real scalability concern past ~50k-100k rows without subsampling or an approximate SVM variant."
+  },
+  "elliptic_envelope": {
+    "configs_tried": [
+      {
+        "contamination": 0.05,
+        "support_fraction": null,
+        "native_anomaly_rate": 0.04617834394904458
+      },
+      {
+        "contamination": 0.05,
+        "support_fraction": 0.8,
+        "native_anomaly_rate": 0.047372611464968156
+      },
+      {
+        "contamination": 0.1,
+        "support_fraction": null,
+        "native_anomaly_rate": 0.09753184713375797
+      }
+    ],
+    "selected_config": {
+      "contamination": 0.05,
+      "support_fraction": null
+    },
+    "selected_native_anomaly_rate": 0.0462,
+    "shapiro_wilk_frac_features_non_normal_p_lt_0.05": 1.0,
+    "gaussian_assumption_note": "100.0% of the 46 scaled features reject the Shapiro-Wilk normality null at p<0.05 -- consistent with Phase 4's finding that TransactionAmount and its derived features are right-skewed (skew 1.74, unchanged by any affine scaler, per Phase 6) rather than Gaussian. EllipticEnvelope assumes the *joint* feature distribution is multivariate Gaussian; individual non-normality this widespread makes that assumption shaky on this dataset, so its MCD-based covariance/Mahalanobis distance should be read as a rough, assumption-violating baseline, not a well-calibrated score -- included for completeness and comparison, not recommended as the primary production detector.",
+    "fit_time_sec_all_configs": 7.529,
+    "cost_note": "Fits a Minimum Covariance Determinant estimator, O(n * p^2) roughly; fast at this scale but the fitted covariance matrix (46x46) itself gets less reliable as skew/non-normality increase, per the note above."
+  },
+  "dbscan": {
+    "eps_from_kdistance_elbow": 8.4277,
+    "configs_tried": [
+      {
+        "eps": 6.742,
+        "min_samples": 5,
+        "noise_rate": 0.016719745222929936,
+        "n_clusters": 1
+      },
+      {
+        "eps": 6.742,
+        "min_samples": 10,
+        "noise_rate": 0.023487261146496817,
+        "n_clusters": 1
+      },
+      {
+        "eps": 6.742,
+        "min_samples": 15,
+        "noise_rate": 0.029060509554140128,
+        "n_clusters": 1
+      },
+      {
+        "eps": 8.428,
+        "min_samples": 5,
+        "noise_rate": 0.009156050955414012,
+        "n_clusters": 1
+      },
+      {
+        "eps": 8.428,
+        "min_samples": 10,
+        "noise_rate": 0.012340764331210192,
+        "n_clusters": 1
+      },
+      {
+        "eps": 8.428,
+        "min_samples": 15,
+        "noise_rate": 0.01711783439490446,
+        "n_clusters": 1
+      },
+      {
+        "eps": 10.113,
+        "min_samples": 5,
+        "noise_rate": 0.007165605095541401,
+        "n_clusters": 1
+      },
+      {
+        "eps": 10.113,
+        "min_samples": 10,
+        "noise_rate": 0.009156050955414012,
+        "n_clusters": 1
+      },
+      {
+        "eps": 10.113,
+        "min_samples": 15,
+        "noise_rate": 0.010350318471337579,
+        "n_clusters": 1
+      }
+    ],
+    "selected_config": {
+      "eps": 8.428,
+      "min_samples": 10
+    },
+    "selected_noise_rate": 0.0123,
+    "selected_n_clusters": 1,
+    "fit_time_sec_all_configs": 3.564,
+    "cost_note": "O(n log n) with a spatial index in low dimensions, but the index degrades toward O(n^2) in ~46-dimensional space (curse of dimensionality on the radius query) -- consistent with the noise-rate instability across the eps grid above; also has no out-of-sample .predict, requiring a full refit to score new transactions, a real production limitation vs. Isolation Forest/LOF/OCSVM/EE.",
+    "note": "DBSCAN's eps is highly sensitive in this 46-D scaled space -- the noise rate swings from 0.7% to 2.9% across the 3x3 eps/min_samples grid, which is exactly the manual-tuning brittleness HDBSCAN (Model 6) is designed to avoid."
+  },
+  "hdbscan": {
+    "configs_tried": [
+      {
+        "min_cluster_size": 10,
+        "min_samples": 5,
+        "noise_rate": 0.5394108280254777,
+        "n_clusters": 2
+      },
+      {
+        "min_cluster_size": 20,
+        "min_samples": 10,
+        "noise_rate": 0.6683917197452229,
+        "n_clusters": 2
+      },
+      {
+        "min_cluster_size": 30,
+        "min_samples": 15,
+        "noise_rate": 0.7503980891719745,
+        "n_clusters": 2
+      },
+      {
+        "min_cluster_size": 15,
+        "min_samples": null,
+        "noise_rate": 0.7503980891719745,
+        "n_clusters": 2
+      }
+    ],
+    "selected_config": {
+      "min_cluster_size": 10,
+      "min_samples": 5
+    },
+    "selected_noise_rate": 0.5394,
+    "selected_n_clusters": 2,
+    "fit_time_sec_all_configs": 4.392,
+    "comparison_vs_dbscan": "Reported honestly rather than spun positive: HDBSCAN does remove the need to manually pick eps, but on this dataset that does not translate into a better result than DBSCAN. HDBSCAN's noise rate ranges 53.9%-75.0% across its 4 configs -- far higher, and no more stable in absolute terms, than DBSCAN's 0.7%-2.9% (Model 5). HDBSCAN only ever finds 2 clusters here and assigns the majority of points to neither, i.e. its stability-based cluster-extraction criterion does not find the single dense mass structure this dataset actually has (consistent with the Phase 7 UMAP/t-SNE finding of one dominant population plus small pockets, not several well-separated dense clusters) to be a 'stable' cluster worth keeping, and instead calls most of it noise. Its GLOSH outlier_scores_ (used as the anomaly score below) is still usable, but the noise-rate/cluster-count numbers themselves should not be read as 'HDBSCAN solved DBSCAN's tuning problem' on this data -- it traded manual eps-tuning brittleness for a different failure mode.",
+    "cost_note": "Builds a minimum spanning tree over mutual reachability distances, O(n log n) typical case but more expensive per-fit than DBSCAN due to the cluster-hierarchy step; 4 configs on n=2,512 took 4.39s total, still fast at this scale. Like DBSCAN, no native out-of-sample .predict (hdbscan's approximate_predict exists but requires prediction_data=True and was not exercised here)."
+  },
+  "kmeans": {
+    "k_range_tried": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "inertia_by_k": [
+      140412.82,
+      111468.93,
+      96342.69,
+      84359.98,
+      73958.38,
+      65928.17,
+      60530.41,
+      55456.23,
+      50930.2
+    ],
+    "silhouette_by_k": [
+      0.9184,
+      0.4941,
+      0.448,
+      0.4372,
+      0.2404,
+      0.2471,
+      0.3585,
+      0.1888,
+      0.1754
+    ],
+    "degenerate_k_all_k_affected": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "degenerate_finding": "Every k from 2 to 10 produces at least one cluster holding <1% of the 2,009 training rows. Checked directly: at k=2 and k=9 the identical 3 training rows form the micro-cluster (TX000177/AC00363 and TX002305/AC00494, with Amount_ZScore_Account 92.56 and 77.71 respectively, plus TX001012/AC00329) -- the same extreme multivariate outliers every time, not noise. Naive argmax(silhouette) picking k=2 (silhouette 0.9184) is a silhouette artifact of this degenerate split, not evidence of two genuine behavioral populations.",
+    "selected_k": 4,
+    "selected_k_rationale": "Chosen from the inertia elbow (k=4 is the last point with a sharp drop before the curve flattens, see kmeans_elbow_silhouette.png) rather than silhouette, which is unusable here for the reason above.",
+    "n_micro_clusters_at_selected_k": 1,
+    "scoring_fix": "Anomaly score = distance to the nearest centroid among clusters holding >=1% of training rows only; the excluded micro-cluster centroid(s) are not used as distance targets, since points assigned to them are themselves the extreme outliers this model should be scoring highly, not comparison points for everyone else.",
+    "top5pct_flagged_rate": 0.0502,
+    "cost_note": "O(n * k * p) per Lloyd's iteration -- the cheapest clustering model here alongside Isolation Forest; scales linearly in rows, straightforward to score new points (distance to the k fixed centroids) in production, though the micro-cluster handling above adds a small amount of production-code complexity beyond a textbook K-Means anomaly score."
+  },
+  "gmm": {
+    "n_range_tried": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "cov_types_tried": [
+      "full",
+      "diag",
+      "tied",
+      "spherical"
+    ],
+    "bic_by_cov": {
+      "full": [
+        57307.4,
+        61062.2,
+        -371.0,
+        7517.6,
+        -41807.5,
+        -30103.0,
+        -27338.0,
+        -40015.5,
+        -63019.3,
+        -61770.7
+      ],
+      "diag": [
+        190871.4,
+        148464.6,
+        120503.1,
+        129251.4,
+        98575.6,
+        35878.5,
+        71529.8,
+        51546.8,
+        50182.7,
+        9487.4
+      ],
+      "tied": [
+        57307.4,
+        55085.5,
+        53764.2,
+        52840.4,
+        44997.0,
+        43508.1,
+        46838.2,
+        48610.0,
+        40454.1,
+        39361.3
+      ],
+      "spherical": [
+        343101.5,
+        245464.4,
+        230978.5,
+        227356.6,
+        216486.4,
+        210920.4,
+        207711.9,
+        203970.5,
+        202797.3,
+        197196.4
+      ]
+    },
+    "selected_n_components": 9,
+    "selected_covariance_type": "full",
+    "selected_bic": -63019.3,
+    "top5pct_flagged_rate": 0.0502,
+    "cost_note": "EM iterations are O(n * k * p^2) for full covariance (p=46 makes the 46x46 covariance matrix per component the dominant cost) -- noticeably slower than diag/spherical variants; likelihood-based score_samples is cheap and well-defined for new points, a genuine production advantage over DBSCAN/HDBSCAN."
+  }
+}

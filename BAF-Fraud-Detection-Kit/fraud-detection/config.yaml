@@ -1,0 +1,148 @@
+# ============================================================================
+# Fraud Detection Kit -- master configuration
+#
+# Dataset: Feedzai Bank Account Fraud (BAF), "Base" variant, NeurIPS 2022.
+# This is ACCOUNT-OPENING fraud (fake/stolen identity opening a new account),
+# not card-transaction fraud. There is no transaction amount, no timestamp,
+# and no account/customer identifier in the raw file. See README.md for the
+# full list of spec items skipped for this reason.
+# ============================================================================
+
+seed: 42
+
+data:
+  raw_path: "data/raw/Base.csv"
+  processed_dir: "data/processed"
+  predictions_dir: "data/predictions"
+  target_col: "fraud_bool"          # real column name -- do NOT rename to is_fraud
+  month_col: "month"
+
+split:
+  # VERIFIED (see 01-DATASET-BIBLE.md, Trap 2): the organiser split for this
+  # dataset's public leaderboard is a RANDOM stratified 70/30 split, not the
+  # NeurIPS paper's temporal one. We further split the 30% into val/test
+  # halves, giving a 70/15/15 train/val/test stratified random split.
+  # `month` is kept as an ordinary feature, consistent with a random split.
+  strategy: "stratified_random"     # NOT temporal -- verified, see README
+  train_size: 0.70
+  val_size: 0.15
+  test_size: 0.15
+
+sentinel_cols:                       # -1 == MISSING for these six only
+  - prev_address_months_count
+  - current_address_months_count
+  - bank_months_count
+  - session_length_in_minutes
+  - device_distinct_emails_8w
+  - intended_balcon_amount
+
+categorical_cols:
+  - payment_type
+  - employment_status
+  - housing_status
+  - source
+  - device_os
+
+# columns with legitimate negative values -- never sentinel-treat these
+legitimate_negative_cols:
+  - credit_risk_score
+  - velocity_6h
+
+protected_attribute:
+  column: "customer_age"
+  threshold: 50                     # group = customer_age > 50 (strict), per BAF paper
+
+imbalance:
+  strategies:
+    - none
+    - class_weight
+    - random_undersample
+    - smote
+    - smote_undersample
+  random_undersample_ratio: 10       # negatives per positive kept
+  smote_target_ratio: 0.10           # minority:majority ratio SMOTE aims for
+  smote_undersample_majority_ratio: 20  # majority:minority ratio after the undersample step
+  smote_undersample_final_ratio: 0.30   # minority:majority ratio SMOTE aims for afterwards
+                                         # (must be > 1/smote_undersample_majority_ratio, since
+                                         # SMOTE only oversamples -- it cannot remove rows)
+  # Random Forest is fit on a controlled/reduced training sample for the
+  # resampling-based strategies (undersample / smote / smote_undersample)
+  # because this machine has 8GB RAM and 300 trees over a >1M-row oversampled
+  # frame is not feasible here. See README "Compute constraints" section.
+  rf_resampling_max_rows: 150000
+
+models:
+  logistic_regression:
+    max_iter: 200
+    solver: "lbfgs"
+    class_weight_balanced: true
+  random_forest:
+    n_estimators: 300
+    max_depth: 15               # reduced from 20 after an observed OOM-style crash
+                                 # (no Python traceback, process just vanished) on this
+                                 # 8GB machine while another unrelated process was
+                                 # competing for memory; see README "Compute constraints"
+    max_samples: 0.5            # bootstrap fraction per tree -- halves per-tree memory
+    n_jobs: 6                   # leave headroom instead of claiming all 8 cores
+    class_weight_balanced: true
+  lightgbm:
+    # Starting point proven on this exact dataset in baf.py / run_pipeline.py.
+    learning_rate: 0.05
+    num_leaves: 64
+    min_data_in_leaf: 200
+    min_sum_hessian_in_leaf: 1.0
+    max_cat_to_onehot: 8
+    feature_fraction: 0.7
+    bagging_fraction: 0.8
+    bagging_freq: 1
+    cat_smooth: 50
+    cat_l2: 10
+    min_data_per_group: 200
+    lambda_l1: 0.1
+    lambda_l2: 5.0
+    num_boost_round: 2000
+    early_stopping_rounds: 100
+  xgboost:
+    learning_rate: 0.05
+    max_depth: 6
+    min_child_weight: 5           # sum-of-hessians, NOT a row count -- 200 would
+                                   # silently produce a 0-split stump at this base rate
+    subsample: 0.8
+    colsample_bytree: 0.7
+    reg_alpha: 0.1
+    reg_lambda: 5.0
+    num_boost_round: 2000
+    early_stopping_rounds: 100
+
+evaluation:
+  primary_metric: "pr_auc"          # NOT accuracy
+  target_fpr_for_tpr: 0.05
+  cost_fp: 50                       # business cost of a false positive (analyst review + friction)
+  cost_fn: 500                      # business cost of a false negative (unrecovered fraud loss)
+
+threshold_optimization:
+  thresholds: [0.01, 0.02, 0.03, 0.05, 0.07, 0.10, 0.15, 0.20, 0.25, 0.30,
+               0.35, 0.40, 0.45, 0.50, 0.60, 0.70, 0.80, 0.90]
+
+risk_levels:
+  low_max: 0.02
+  medium_max: 0.10
+  high_max: 0.30
+  # >= high_max -> CRITICAL
+
+logging:
+  level: "INFO"
+  log_dir: "reports"
+
+# ----------------------------------------------------------------------------
+# Admin gate (see src/auth.py and README.md "Security note").
+# No credential is committed here by design -- predict.py is rejected until an
+# operator generates their own salt/hash with `python -m src.auth --generate
+# <token>` and pastes the two values below, then sets the FRAUD_ADMIN_TOKEN
+# environment variable to <token> before running predict.py. This is an
+# application-level gate for a trusted internal tool, NOT a substitute for
+# real IAM / network security.
+# ----------------------------------------------------------------------------
+auth:
+  admin_salt_hex: "bdef9d7075358dc4a803ac8a8357ada1"
+  admin_token_hash_hex: "c1cd88701f8fd2890f3f483376977a30aa30ce794c3e665d40c5ea21eea57156"

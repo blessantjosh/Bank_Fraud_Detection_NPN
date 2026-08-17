@@ -1,0 +1,22 @@
+{
+  "velocity_1d_value_counts": {
+    "0.0": 2462,
+    "1.0": 48,
+    "2.0": 2
+  },
+  "velocity_7d_value_counts": {
+    "0.0": 2289,
+    "1.0": 209,
+    "2.0": 14
+  },
+  "device_shared_gt0_rows": 1830,
+  "ip_shared_gt0_rows": 1919,
+  "merchant_shared_gt0_rows": 2412,
+  "device_shared_max": 8,
+  "ip_shared_max": 12,
+  "merchant_shared_max": 43,
+  "elevated_login_rows": 122,
+  "atm_credit_rows": 73,
+  "n_rows": 2512,
+  "n_features_v2_cols": 48
+}

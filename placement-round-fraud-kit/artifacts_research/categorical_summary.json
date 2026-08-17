@@ -1,0 +1,236 @@
+{
+  "TransactionType": {
+    "cardinality": 2,
+    "top_categories": [
+      {
+        "value": "Debit",
+        "count": 1944,
+        "pct": 77.39
+      },
+      {
+        "value": "Credit",
+        "count": 568,
+        "pct": 22.61
+      }
+    ],
+    "n_singleton_categories": 0,
+    "n_categories_with_count_2": 0,
+    "n_rare_categories_le2": 0
+  },
+  "Location": {
+    "cardinality": 43,
+    "top_categories": [
+      {
+        "value": "Fort Worth",
+        "count": 70,
+        "pct": 2.79
+      },
+      {
+        "value": "Los Angeles",
+        "count": 69,
+        "pct": 2.75
+      },
+      {
+        "value": "Oklahoma City",
+        "count": 68,
+        "pct": 2.71
+      },
+      {
+        "value": "Charlotte",
+        "count": 68,
+        "pct": 2.71
+      },
+      {
+        "value": "Philadelphia",
+        "count": 67,
+        "pct": 2.67
+      }
+    ],
+    "n_singleton_categories": 0,
+    "n_categories_with_count_2": 0,
+    "n_rare_categories_le2": 0
+  },
+  "DeviceID": {
+    "cardinality": 681,
+    "top_categories": [
+      {
+        "value": "D000142",
+        "count": 9,
+        "pct": 0.36
+      },
+      {
+        "value": "D000548",
+        "count": 9,
+        "pct": 0.36
+      },
+      {
+        "value": "D000663",
+        "count": 9,
+        "pct": 0.36
+      },
+      {
+        "value": "D000203",
+        "count": 9,
+        "pct": 0.36
+      },
+      {
+        "value": "D000315",
+        "count": 9,
+        "pct": 0.36
+      }
+    ],
+    "n_singleton_categories": 72,
+    "n_categories_with_count_2": 119,
+    "n_rare_categories_le2": 191
+  },
+  "IP Address": {
+    "cardinality": 592,
+    "top_categories": [
+      {
+        "value": "200.136.146.93",
+        "count": 13,
+        "pct": 0.52
+      },
+      {
+        "value": "49.31.186.82",
+        "count": 11,
+        "pct": 0.44
+      },
+      {
+        "value": "173.135.78.201",
+        "count": 10,
+        "pct": 0.4
+      },
+      {
+        "value": "9.230.41.239",
+        "count": 10,
+        "pct": 0.4
+      },
+      {
+        "value": "147.119.62.178",
+        "count": 10,
+        "pct": 0.4
+      }
+    ],
+    "n_singleton_categories": 40,
+    "n_categories_with_count_2": 75,
+    "n_rare_categories_le2": 115
+  },
+  "MerchantID": {
+    "cardinality": 100,
+    "top_categories": [
+      {
+        "value": "M026",
+        "count": 45,
+        "pct": 1.79
+      },
+      {
+        "value": "M066",
+        "count": 34,
+        "pct": 1.35
+      },
+      {
+        "value": "M065",
+        "count": 33,
+        "pct": 1.31
+      },
+      {
+        "value": "M028",
+        "count": 33,
+        "pct": 1.31
+      },
+      {
+        "value": "M014",
+        "count": 33,
+        "pct": 1.31
+      }
+    ],
+    "n_singleton_categories": 0,
+    "n_categories_with_count_2": 0,
+    "n_rare_categories_le2": 0
+  },
+  "Channel": {
+    "cardinality": 3,
+    "top_categories": [
+      {
+        "value": "Branch",
+        "count": 868,
+        "pct": 34.55
+      },
+      {
+        "value": "ATM",
+        "count": 833,
+        "pct": 33.16
+      },
+      {
+        "value": "Online",
+        "count": 811,
+        "pct": 32.29
+      }
+    ],
+    "n_singleton_categories": 0,
+    "n_categories_with_count_2": 0,
+    "n_rare_categories_le2": 0
+  },
+  "CustomerOccupation": {
+    "cardinality": 4,
+    "top_categories": [
+      {
+        "value": "Student",
+        "count": 657,
+        "pct": 26.15
+      },
+      {
+        "value": "Doctor",
+        "count": 631,
+        "pct": 25.12
+      },
+      {
+        "value": "Engineer",
+        "count": 625,
+        "pct": 24.88
+      },
+      {
+        "value": "Retired",
+        "count": 599,
+        "pct": 23.85
+      }
+    ],
+    "n_singleton_categories": 0,
+    "n_categories_with_count_2": 0,
+    "n_rare_categories_le2": 0
+  },
+  "AccountID": {
+    "cardinality": 495,
+    "top_categories": [
+      {
+        "value": "AC00202",
+        "count": 12,
+        "pct": 0.48
+      },
+      {
+        "value": "AC00460",
+        "count": 12,
+        "pct": 0.48
+      },
+      {
+        "value": "AC00363",
+        "count": 12,
+        "pct": 0.48
+      },
+      {
+        "value": "AC00362",
+        "count": 12,
+        "pct": 0.48
+      },
+      {
+        "value": "AC00480",
+        "count": 11,
+        "pct": 0.44
+      }
+    ],
+    "n_singleton_categories": 24,
+    "n_categories_with_count_2": 43,
+    "n_rare_categories_le2": 67
+  }
+}

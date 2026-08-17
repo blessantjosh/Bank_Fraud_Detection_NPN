@@ -1,0 +1,10 @@
+{
+  "corr_label_enc_vs_votes": -0.0024,
+  "corr_freq_enc_vs_votes": -0.0521,
+  "r2_label_enc_vs_votes": 0.0,
+  "r2_freq_enc_vs_votes": 0.0027,
+  "r2_onehot_vs_votes": 0.0301,
+  "n_distinct_locations": 43,
+  "vote_count_mean": 0.1982,
+  "vote_count_std": 0.6426
+}

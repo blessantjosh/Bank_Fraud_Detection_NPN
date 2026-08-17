@@ -1,0 +1,71 @@
+# fraud-detection/api/docker-compose.yml
+#
+# Run from fraud-detection/:
+#   docker compose -f api/docker-compose.yml --env-file api/.env up --build
+#
+# This compose file demonstrates the PRODUCTION-SHAPED deployment (API +
+# a real Postgres database as separate containers) even though the
+# application code itself defaults to SQLite for a zero-setup local dev/demo
+# run (`uvicorn api.main:app` with no DATABASE_URL set). Switching between
+# them is exactly the one-line DATABASE_URL change described in
+# api/README.md "Database".
+#
+# Postgres is the free, self-hosted, open-source `postgres` image -- not a
+# managed/paid cloud database. No paid service is used anywhere in this
+# stack.
+#
+# The db service publishes NO ports to the host: it is reachable only from
+# the `api` service over the internal compose network (`backend`), never
+# from outside the Docker host.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fraud_api}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in api/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-fraud_api}
+    volumes:
+      - fraud_api_pgdata:/var/lib/postgresql/data
+    networks:
+      - backend
+    # Deliberately NO `ports:` mapping -- not reachable from the host or
+    # the public network, only from other containers on `backend`.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fraud_api}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fraud_api}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-fraud_api}
+      JWT_SECRET: ${JWT_SECRET:?set a persistent JWT_SECRET in api/.env for anything beyond a throwaway demo}
+      MFA_REQUIRED: ${MFA_REQUIRED:-false}
+      ENFORCE_MODEL_CHECKSUM: ${ENFORCE_MODEL_CHECKSUM:-false}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3000}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      # Trained model artifacts are supplied from the host, not baked into
+      # the image, so a retrain doesn't require a rebuild.
+      - ../models:/app/models:ro
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  fraud_api_pgdata:

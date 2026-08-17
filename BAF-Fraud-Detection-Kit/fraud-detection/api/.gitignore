@@ -1,0 +1,10 @@
+# api/-specific ignores (in addition to fraud-detection/.gitignore)
+.env
+*.db
+*.sqlite3
+*.key
+*.pem
+secrets/
+__pycache__/
+*.pyc
+.pytest_cache/

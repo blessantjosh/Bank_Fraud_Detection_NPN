@@ -1,0 +1,17 @@
+{
+  "crosstab": {
+    "Credit": {
+      "ATM": 73,
+      "Branch": 251,
+      "Online": 244
+    },
+    "Debit": {
+      "ATM": 760,
+      "Branch": 617,
+      "Online": 567
+    }
+  },
+  "chi2_statistic": 136.90539694747218,
+  "p_value": 1.8679738038721596e-30,
+  "dof": 2
+}

@@ -1,0 +1,14 @@
+{
+  "missing": {
+    "missing_cells": 0,
+    "total_cells": 45216,
+    "pct_missing": 0.0
+  },
+  "duplicates": {
+    "exact_duplicate_rows": 0,
+    "duplicate_transaction_ids": 0,
+    "near_duplicate_rows": 0,
+    "near_duplicate_examples": []
+  },
+  "isolation_forest_total_flagged": 126
+}

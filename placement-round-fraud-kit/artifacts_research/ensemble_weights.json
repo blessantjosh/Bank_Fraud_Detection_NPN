@@ -1,0 +1,30 @@
+{
+  "weights": {
+    "isolation_forest": 0.10639190352852203,
+    "lof": 0.10686386408138679,
+    "ocsvm": 0.07156306337446974,
+    "elliptic_envelope": 0.0930310170940635,
+    "dbscan": 0.05765326040143303,
+    "hdbscan": 0.11340259237234769,
+    "kmeans": 0.09065358127402369,
+    "gmm": 0.0688933411568615,
+    "autoencoder": 0.10004477622889645,
+    "vae": 0.09818315392371148,
+    "lstm_ae": 0.09331944656428418
+  },
+  "disagreements": {
+    "isolation_forest": 0.2157273024312738,
+    "lof": 0.21455372700758132,
+    "ocsvm": 0.34505342829200764,
+    "elliptic_envelope": 0.25389040567596377,
+    "dbscan": 0.4403666042182719,
+    "hdbscan": 0.1992997111771158,
+    "kmeans": 0.26186008459726956,
+    "gmm": 0.3603623521581341,
+    "autoencoder": 0.2325858039852035,
+    "vae": 0.23794383145533587,
+    "lstm_ae": 0.25295114861924856
+  },
+  "pca_explained_variance_ratio_pc1": 0.5265,
+  "note": "Weights = 1 / (mean pairwise disagreement + 0.05), normalized to sum to 1; disagreement_m = mean over the other 10 models of (1 - Spearman rho)/2, mapping rho in [-1,1] to a [0,1] disagreement scale. Source: artifacts_research/model_pairwise_spearman.csv (Phase 8, not recomputed)."
+}

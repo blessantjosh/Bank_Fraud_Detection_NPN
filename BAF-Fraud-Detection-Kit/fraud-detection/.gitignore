@@ -1,0 +1,39 @@
+# data (large / generated -- keep the repo git-light; raw file documented in README)
+data/raw/*.csv
+data/processed/*
+data/predictions/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/predictions/.gitkeep
+
+# trained artifacts (reproducible via train.py)
+models/*.joblib
+models/*.json
+!models/.gitkeep
+
+# logs
+*.log
+reports/metrics/audit_log.jsonl
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# secrets -- never commit an admin token or its config in a non-placeholder form
+.env
+*.key
+*.pem
+secrets/
+
+# api/ layer (see api/.gitignore for the full list)
+api/*.db
+api/*.sqlite3

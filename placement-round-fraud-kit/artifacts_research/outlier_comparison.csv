@@ -1,0 +1,6 @@
+feature,IQR_count,ZScore_count,ModifiedZScore_count,Percentile_1_99_count,IsolationForest_joint_count
+TransactionAmount,113,48,100,52,126
+CustomerAge,0,0,0,17,126
+TransactionDuration,0,0,0,52,126
+LoginAttempts,122,95,122,0,126
+AccountBalance,0,0,0,52,126

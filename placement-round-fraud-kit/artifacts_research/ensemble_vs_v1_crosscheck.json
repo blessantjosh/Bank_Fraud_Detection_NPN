@@ -1,0 +1,18 @@
+{
+  "Weighted Avg": {
+    "spearman_vs_v1_vote_count_ROUGH_PROXY_NOT_GROUND_TRUTH": 0.444,
+    "spearman_vs_hybrid_ensemble_vote_count": 0.5039
+  },
+  "Rank (Borda)": {
+    "spearman_vs_v1_vote_count_ROUGH_PROXY_NOT_GROUND_TRUTH": 0.4419,
+    "spearman_vs_hybrid_ensemble_vote_count": 0.485
+  },
+  "Percentile Avg": {
+    "spearman_vs_v1_vote_count_ROUGH_PROXY_NOT_GROUND_TRUTH": 0.4419,
+    "spearman_vs_hybrid_ensemble_vote_count": 0.4856
+  },
+  "PCA Stacking": {
+    "spearman_vs_v1_vote_count_ROUGH_PROXY_NOT_GROUND_TRUTH": 0.4415,
+    "spearman_vs_hybrid_ensemble_vote_count": 0.5018
+  }
+}
