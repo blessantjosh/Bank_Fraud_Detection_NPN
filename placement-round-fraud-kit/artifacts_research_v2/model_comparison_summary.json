@@ -1,0 +1,16 @@
+{
+  "anomaly_rates_pct": {
+    "isolation_forest": 5.29,
+    "lof": 4.46,
+    "ocsvm": 5.73,
+    "elliptic_envelope": 5.02,
+    "dbscan": 2.27,
+    "hdbscan": 8.88,
+    "kmeans": 5.02,
+    "gmm": 5.02,
+    "autoencoder": 5.02,
+    "vae": 5.02,
+    "lstm_ae": 4.82,
+    "hybrid_ensemble": 3.3
+  }
+}

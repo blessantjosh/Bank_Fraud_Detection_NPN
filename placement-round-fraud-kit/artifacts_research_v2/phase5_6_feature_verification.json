@@ -1,0 +1,228 @@
+{
+  "missing_values": {
+    "total_missing_cells": 0,
+    "total_cells": 70336
+  },
+  "duplicates": {
+    "duplicate_full_rows": 0,
+    "duplicate_transaction_ids": 0
+  },
+  "scaling_check": {
+    "TransactionAmount": {
+      "mean": -0.0,
+      "std": 1.000199,
+      "min": -4.0312,
+      "max": 1.982,
+      "n_unique": 2455
+    },
+    "CustomerAge": {
+      "mean": 0.0,
+      "std": 1.000199,
+      "min": -1.4995,
+      "max": 1.9859,
+      "n_unique": 63
+    },
+    "TransactionDuration": {
+      "mean": 0.0,
+      "std": 1.000199,
+      "min": -1.5675,
+      "max": 2.5784,
+      "n_unique": 288
+    },
+    "LoginAttempts": {
+      "mean": 0.0,
+      "std": 1.000199,
+      "min": -0.2068,
+      "max": 6.4317,
+      "n_unique": 5
+    },
+    "AccountBalance": {
+      "mean": 0.0,
+      "std": 1.000199,
+      "min": -1.2853,
+      "max": 2.529,
+      "n_unique": 2510
+    },
+    "account_frequency": {
+      "mean": 0.0,
+      "std": 1.000199,
+      "min": -2.2673,
+      "max": 2.6135,
+      "n_unique": 12
+    },
+    "device_frequency": {
+      "mean": 0.0,
+      "std": 1.000199,
+      "min": -1.9449,
+      "max": 2.4163,
+      "n_unique": 9
+    },
+    "ip_frequency": {
+      "mean": 0.0,
+      "std": 1.000199,
+      "min": -2.0403,
+      "max": 3.8474,
+      "n_unique": 12
+    },
+    "merchant_frequency": {
+      "mean": -0.0,
+      "std": 1.000199,
+      "min": -2.5545,
+      "max": 3.6706,
+      "n_unique": 22
+    },
+    "amount_to_balance_ratio": {
+      "mean": -0.0,
+      "std": 1.000199,
+      "min": -0.5729,
+      "max": 8.3179,
+      "n_unique": 2512
+    },
+    "high_amount_transaction": {
+      "mean": 0.050159,
+      "std": 0.218317,
+      "min": 0.0,
+      "max": 1.0,
+      "n_unique": 2
+    },
+    "TransactionType_Debit": {
+      "mean": 0.773885,
+      "std": 0.418398,
+      "min": 0.0,
+      "max": 1.0,
+      "n_unique": 2
+    },
+    "Channel_Branch": {
+      "mean": 0.345541,
+      "std": 0.475639,
+      "min": 0.0,
+      "max": 1.0,
+      "n_unique": 2
+    },
+    "Channel_Online": {
+      "mean": 0.32285,
+      "std": 0.467659,
+      "min": 0.0,
+      "max": 1.0,
+      "n_unique": 2
+    },
+    "CustomerOccupation_Engineer": {
+      "mean": 0.248806,
+      "std": 0.432407,
+      "min": 0.0,
+      "max": 1.0,
+      "n_unique": 2
+    },
+    "CustomerOccupation_Retired": {
+      "mean": 0.238455,
+      "std": 0.426224,
+      "min": 0.0,
+      "max": 1.0,
+      "n_unique": 2
+    },
+    "CustomerOccupation_Student": {
+      "mean": 0.261545,
+      "std": 0.439563,
+      "min": 0.0,
+      "max": 1.0,
+      "n_unique": 2
+    },
+    "Location_FE": {
+      "mean": -0.0,
+      "std": 1.000199,
+      "min": -2.8491,
+      "max": 1.6953,
+      "n_unique": 22
+    }
+  },
+  "amount_to_balance_ratio_check": {
+    "corr_with_raw_TransactionAmount_over_AccountBalance": 0.9467,
+    "raw_ratio_describe": {
+      "count": 2512.0,
+      "mean": 0.2,
+      "std": 0.5119,
+      "min": 0.0,
+      "25%": 0.0182,
+      "50%": 0.0519,
+      "75%": 0.1517,
+      "max": 7.896
+    },
+    "note": "amount_to_balance_ratio is a standardized (StandardScaler) transform of some ratio-like quantity, not the raw dollar TransactionAmount/AccountBalance ratio itself (units are z-scores, not a dimensionless ratio) -- correlation with the literal raw ratio confirms it is measuring materially the same underlying concept without claiming an exact, recoverable formula."
+  },
+  "high_amount_transaction_check": {
+    "flagged_rate": 0.0502,
+    "n_flagged": 126,
+    "min_raw_amount_where_flag_1": 878.63,
+    "max_raw_amount_where_flag_0": 877.81,
+    "raw_amount_quantiles": {
+      "0.9": 701.31,
+      "0.93": 793.3,
+      "0.95": 878.18,
+      "0.97": 1049.18
+    },
+    "corr_flag_vs_raw_amount": 0.6828,
+    "note": "Flag boundary (878.63 min-flagged vs 877.81 max-unflagged) sits almost exactly at the raw dataset's 95th percentile (878.18) -- high_amount_transaction is a global top-5%-by-raw-amount threshold flag, consistent with its 5.02% flagged rate (126/2,512)."
+  },
+  "dummy_baseline_check": {
+    "TransactionType": {
+      "raw_value_counts": {
+        "Debit": 1944,
+        "Credit": 568
+      },
+      "dummy_present": "TransactionType_Debit",
+      "implied_dropped_baseline": "Credit"
+    },
+    "Channel": {
+      "raw_value_counts": {
+        "Branch": 868,
+        "ATM": 833,
+        "Online": 811
+      },
+      "dummies_present": [
+        "Channel_Branch",
+        "Channel_Online"
+      ],
+      "implied_dropped_baseline": "ATM"
+    },
+    "CustomerOccupation": {
+      "raw_value_counts": {
+        "Student": 657,
+        "Doctor": 631,
+        "Engineer": 625,
+        "Retired": 599
+      },
+      "dummies_present": [
+        "CustomerOccupation_Engineer",
+        "CustomerOccupation_Retired",
+        "CustomerOccupation_Student"
+      ],
+      "implied_dropped_baseline": "Doctor"
+    }
+  },
+  "account_sequence_length": {
+    "n_accounts": 495,
+    "mean": 5.075,
+    "median": 5.0,
+    "min": 1,
+    "max": 12,
+    "value_counts": {
+      "1": 24,
+      "2": 43,
+      "3": 62,
+      "4": 81,
+      "5": 87,
+      "6": 68,
+      "7": 58,
+      "8": 31,
+      "9": 28,
+      "10": 4,
+      "11": 5,
+      "12": 4
+    },
+    "n_accounts_ge3": 428,
+    "pct_accounts_ge3": 86.46,
+    "rows_covered_ge3": 2402,
+    "pct_rows_covered_ge3": 95.62,
+    "note": "Re-verified directly on features_teammate_merged.csv rather than assumed carried over from the in-house pipeline's Phase 8 finding -- confirmed identical, as expected since both feature sets are built from the same 2,512-row raw CSV and row order/AccountID values were verified to align exactly (task brief)."
+  }
+}

@@ -31,9 +31,9 @@
     </nav>
 
     <div class="sidebar-footer">
-      Transaction scores are a research signal derived from an unsupervised
-      anomaly ensemble, not a verified fraud determination. See About on the
-      Overview page.
+      Scores are a research signal from an 11-model unsupervised anomaly
+      ensemble on an unlabelled dataset — not a verified fraud determination,
+      and never an automatic block. See About on the Overview page.
     </div>
   </aside>
 
@@ -55,8 +55,8 @@
       <section class="page active" id="page-overview">
         <div class="grid grid-cols-5" id="kpi-tiles">
           <div class="kpi-tile"><p class="kpi-label">Total transactions</p><div class="kpi-value skeleton-loading" data-kpi="total"></div></div>
-          <div class="kpi-tile"><p class="kpi-label">High risk</p><div class="kpi-value skeleton-loading" data-kpi="high"></div></div>
-          <div class="kpi-tile"><p class="kpi-label">Needs review</p><div class="kpi-value skeleton-loading" data-kpi="review"></div></div>
+          <div class="kpi-tile"><p class="kpi-label">Priority review (P99)</p><div class="kpi-value skeleton-loading" data-kpi="priority"></div></div>
+          <div class="kpi-tile"><p class="kpi-label">Standard review (P95)</p><div class="kpi-value skeleton-loading" data-kpi="standard"></div></div>
           <div class="kpi-tile"><p class="kpi-label">Flag rate</p><div class="kpi-value skeleton-loading" data-kpi="flagrate"></div></div>
           <div class="kpi-tile"><p class="kpi-label">Avg. transaction amount</p><div class="kpi-value skeleton-loading" data-kpi="avgamount"></div></div>
         </div>
@@ -64,7 +64,7 @@
         <div class="grid grid-cols-2 section-gap">
           <div class="card">
             <p class="card-title">Risk-tier distribution</p>
-            <p class="card-subtitle">2,512 transactions, split by unsupervised-ensemble confidence tier</p>
+            <p class="card-subtitle" id="tier-distribution-subtitle">2,512 transactions, split by the Phase 13 percentile cutoffs</p>
             <div id="chart-tier-distribution"></div>
           </div>
           <div class="card">
@@ -76,11 +76,11 @@
 
         <div class="card section-gap">
           <p class="card-title">Highest-risk transactions right now</p>
-          <p class="card-subtitle">Top 10 by model risk score — click a row for the full explanation</p>
+          <p class="card-subtitle">Top 10 by ensemble percentile score — click a row for the full explanation</p>
           <div class="table-wrap"><table class="data-table" id="table-top-risk">
             <thead><tr>
               <th>Transaction</th><th>Account</th><th>Date</th><th class="num">Amount</th>
-              <th>Channel</th><th>Risk tier</th><th class="num">Risk score</th>
+              <th>Channel</th><th>Risk tier</th><th class="num">Ensemble score</th>
             </tr></thead>
             <tbody></tbody>
           </table></div>
@@ -89,17 +89,32 @@
         <div class="card section-gap about-panel">
           <h4>About this system</h4>
           <p>
-            "Risk" on this dashboard means <strong>pattern-consistency with an unsupervised anomaly ensemble</strong>
-            (Isolation Forest, Local Outlier Factor, One-Class SVM, Elliptic Envelope), not a verified,
-            investigator-confirmed fraud outcome — this dataset carries no ground-truth fraud label. The
-            supervised XGBoost model was trained to reproduce that ensemble's own judgment, so strong feature
-            attribution here confirms internal consistency, not necessarily real-world causal drivers of fraud.
+            "Risk" here means <strong>pattern-consistency with an eleven-model unsupervised anomaly
+            ensemble</strong> — Isolation Forest, LOF, One-Class SVM, Elliptic Envelope, DBSCAN, HDBSCAN,
+            K-Means, GMM, Autoencoder, VAE and an LSTM Autoencoder — combined by <strong>percentile
+            aggregation</strong> into a single score in (0,1). It is not a verified, investigator-confirmed
+            fraud outcome: this dataset carries <strong>no ground-truth fraud label</strong>, so no precision,
+            recall or AUC against fraud is claimed anywhere in this project.
           </p>
           <p>
-            The dataset is also far smaller than the ~1M rows a production deployment would see (2,512
-            transactions, 495 accounts), and the 5% contamination rate used to tune the anomaly detectors is a
-            documented assumption, not a measured fraud rate. Before any production use: validate against
-            investigator-labeled cases, and re-tune thresholds against the bank's real cost-of-fraud figures.
+            The two review tiers are the 99th percentile (priority) and 95th percentile (standard) of that
+            score. <strong>There is deliberately no automatic block tier.</strong> A cost-optimal blocking
+            threshold requires counting false negatives, which requires knowing which <em>unflagged</em>
+            transactions are fraud — unknowable without a label.
+          </p>
+          <p>
+            One structural limit to state plainly: this feature set is built from <strong>population-level
+            statistics</strong> (global device / IP / merchant / account frequency counts, a global top-5%
+            amount flag, a location frequency encoding). It has no per-account history and no per-account
+            novelty flags, so it can ask "is this unusual in the population" but <strong>not</strong> "is this
+            unusual for this specific customer". Account takeover is therefore only partially detectable here.
+          </p>
+          <p>
+            The dataset is also far smaller than a production deployment would see (2,512 transactions, 495
+            accounts, 6.88/day), and the 5% contamination rate used to tune the detectors is a documented
+            assumption, not a measured fraud rate. Before production use: validate against investigator-labelled
+            cases, rebuild the frequency features as prior-only running counters, and re-tune thresholds against
+            the bank's real cost-of-fraud figures.
           </p>
         </div>
       </section>
@@ -113,8 +128,8 @@
           </div>
           <select class="select" id="explorer-risk-tier">
             <option value="">All risk tiers</option>
-            <option value="high">High confidence fraud</option>
-            <option value="medium">Medium / needs review</option>
+            <option value="priority">Priority review (P99)</option>
+            <option value="standard">Standard review (P95)</option>
             <option value="normal">Normal</option>
           </select>
           <select class="select" id="explorer-channel">
@@ -145,7 +160,7 @@
               <th>Channel</th>
               <th>Type</th>
               <th>Risk tier</th>
-              <th data-sort="risk_score" class="num">Risk score</th>
+              <th data-sort="risk_score" class="num">Ensemble score</th>
             </tr></thead>
             <tbody></tbody>
           </table></div>
@@ -194,87 +209,147 @@
 
       <!-- ================= MODEL COMPARISON ================= -->
       <section class="page" id="page-comparison">
-        <div class="grid grid-cols-2">
+        <div class="card">
+          <p class="card-title">Twelve-model comparison</p>
+          <p class="card-subtitle">All models fit on one shared 18-feature matrix and one shared RobustScaler, so every column below is like-for-like. Sorted by internal-validity silhouette.</p>
+          <div class="table-wrap"><table class="data-table" id="table-models">
+            <thead><tr>
+              <th>Model</th><th class="num">Flagged</th><th class="num">Rate</th>
+              <th class="num">Silhouette</th><th class="num">Davies-Bouldin</th><th class="num">Calinski-Harabasz</th>
+              <th class="num">Mean ρ</th><th class="num">Mean Jaccard</th><th class="num">Ensemble weight</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <p class="card-subtitle section-gap" id="model-table-note"></p>
+        </div>
+
+        <div class="grid grid-cols-2 section-gap">
           <div class="card">
-            <p class="card-title">Unsupervised detector comparison</p>
-            <p class="card-subtitle">4-detector ensemble, contamination assumption = 5%</p>
-            <div class="table-wrap"><table class="data-table" id="table-detectors">
-              <thead><tr><th>Detector</th><th class="num">Flagged</th><th class="num">Rate</th></tr></thead>
-              <tbody></tbody>
-            </table></div>
+            <p class="card-title">Internal validity — silhouette by model</p>
+            <p class="card-subtitle" id="validity-note">Top-5%-flagged vs. rest, in the shared scaled 18-feature space</p>
+            <div id="chart-validity"></div>
           </div>
           <div class="card">
-            <p class="card-title">Vote distribution</p>
-            <p class="card-subtitle">How many of the 4 detectors agreed, per transaction</p>
-            <div id="chart-vote-distribution"></div>
+            <p class="card-title">Retrain stability</p>
+            <p class="card-subtitle">Mean pairwise Jaccard of the top-5% flagged set across 5 bootstrap refits — the only three models measured</p>
+            <div id="chart-stability"></div>
+            <p class="card-subtitle section-gap" id="stability-note"></p>
           </div>
         </div>
 
         <div class="grid grid-cols-2 section-gap">
           <div class="card">
-            <p class="card-title">SMOTE vs. class-weighted XGBoost</p>
-            <p class="card-subtitle">SMOTE ships as the primary model per the brief's requirement</p>
-            <div id="chart-model-variants"></div>
-            <p class="card-subtitle section-gap" id="primary-model-note"></p>
+            <p class="card-title">Ensemble member weights</p>
+            <p class="card-subtitle">Consensus weighting = 1 / (mean pairwise disagreement + 0.05), normalised. Used by the Weighted-Average strategy; shown here as a read on which detectors agree with the field.</p>
+            <div id="chart-weights"></div>
+            <p class="card-subtitle section-gap" id="dbscan-note"></p>
           </div>
           <div class="card">
-            <p class="card-title">Confusion matrix</p>
-            <p class="card-subtitle" id="confusion-subtitle">Primary model, held-out test set</p>
-            <div id="confusion-matrix"></div>
+            <p class="card-title">Ensemble strategy agreement</p>
+            <p class="card-subtitle">Four aggregation strategies compared pairwise on the same 11 model scores</p>
+            <div class="table-wrap"><table class="data-table" id="table-strategies">
+              <thead><tr><th>Strategy pair</th><th class="num">Spearman ρ</th><th class="num">Jaccard (top 5%)</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+            <p class="card-subtitle section-gap" id="strategy-note"></p>
           </div>
         </div>
 
-        <div class="stat-highlight section-gap">
-          <p class="card-title">Why accuracy alone is misleading here</p>
-          <div class="stat-highlight-row">
-            <div><div class="stat-highlight-num" id="naive-accuracy"></div><div class="stat-highlight-label">Naive "always normal" baseline</div></div>
-            <div><div class="stat-highlight-num" id="model-accuracy"></div><div class="stat-highlight-label">Actual model accuracy</div></div>
-          </div>
-          <p id="accuracy-explanation" style="font-size:12.8px;color:var(--text-secondary);line-height:1.55;margin:8px 0 0"></p>
+        <div class="card section-gap about-panel">
+          <h4>Reading this page honestly</h4>
+          <p id="leaderboard-note"></p>
+          <p id="ee-note"></p>
+          <p id="agreement-note"></p>
+          <p id="hybrid-note"></p>
         </div>
       </section>
 
       <!-- ================= EXPLAINABILITY ================= -->
       <section class="page" id="page-explainability">
-        <div class="card">
-          <p class="card-title">Global feature importance</p>
-          <p class="card-subtitle">Mean absolute SHAP value across all scored transactions (primary model)</p>
-          <div id="chart-shap-global"></div>
+        <div class="stat-highlight">
+          <p class="card-title">The two explained models disagree about <em>why</em></p>
+          <div class="stat-highlight-row">
+            <div><div class="stat-highlight-num" id="shap-rho"></div><div class="stat-highlight-label">Spearman ρ between the two models' 18-feature importance vectors</div></div>
+            <div><div class="stat-highlight-num" id="shap-overlap"></div><div class="stat-highlight-label">Shared features in each model's top 10</div></div>
+          </div>
+          <p id="divergence-explanation" style="font-size:12.8px;color:var(--text-secondary);line-height:1.55;margin:8px 0 0"></p>
+        </div>
+
+        <div class="grid grid-cols-2 section-gap">
+          <div class="card">
+            <p class="card-title">Isolation Forest — global importance</p>
+            <p class="card-subtitle">Mean |SHAP| across all 2,512 transactions. TreeExplainer, exact, 8.3s for the full dataset.</p>
+            <div id="chart-shap-if"></div>
+          </div>
+          <div class="card">
+            <p class="card-title">Autoencoder — global importance</p>
+            <p class="card-subtitle">Mean |SHAP| across all 2,512 transactions. GradientExplainer over per-row reconstruction MSE, 112.3s for the full dataset.</p>
+            <div id="chart-shap-ae"></div>
+          </div>
         </div>
 
         <div class="card section-gap">
-          <p class="card-title">Decision-tree rules (depth 3)</p>
-          <p class="card-subtitle">A shallow, human-readable tree trained on the same features, for interpretability alongside the primary model</p>
-          <div id="rules-list"></div>
+          <p class="card-title">Worked cases</p>
+          <p class="card-subtitle">Why cross-checking two structurally different models matters, on real transactions from this dataset</p>
+          <div id="worked-examples"></div>
         </div>
 
         <div class="card section-gap">
-          <p class="card-title">Cost-based threshold sweep</p>
-          <p class="card-subtitle" id="cost-sweep-subtitle">Illustrative costs — false positive vs. false negative — swept across classification thresholds on the held-out test set</p>
-          <div id="chart-cost-sweep"></div>
+          <p class="card-title">Ensemble score distribution and review tiers</p>
+          <p class="card-subtitle" id="score-dist-subtitle"></p>
+          <div id="chart-score-dist"></div>
+        </div>
+
+        <div class="grid grid-cols-2 section-gap">
+          <div class="card">
+            <p class="card-title">Percentile thresholds</p>
+            <p class="card-subtitle">Operational load and an upper-bound review cost at each cutoff</p>
+            <div class="table-wrap"><table class="data-table" id="table-thresholds">
+              <thead><tr><th>Cutoff</th><th class="num">Score</th><th class="num">Flagged</th><th class="num">% of data</th><th class="num">Per day</th><th class="num">Cost ceiling</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+            <p class="card-subtitle section-gap" id="cost-note"></p>
+          </div>
+          <div class="card">
+            <p class="card-title">Statistical thresholds — a genuine finding</p>
+            <p class="card-subtitle">The classic sigma / IQR rules applied to the recommended score, and to two unbounded scores for context</p>
+            <div class="table-wrap"><table class="data-table" id="table-stat-thresholds">
+              <thead><tr><th>Method</th><th>Score</th><th class="num">Threshold</th><th class="num">Flagged</th></tr></thead>
+              <tbody></tbody>
+            </table></div>
+            <p class="card-subtitle section-gap" id="stat-finding"></p>
+          </div>
         </div>
       </section>
 
-      <!-- ================= WHAT-IF SIMULATOR ================= -->
+      <!-- ================= ACCOUNT SCENARIO SIMULATOR ================= -->
       <section class="page" id="page-simulator">
         <div class="simulator-banner">
           <span id="simulator-flask-icon"></span>
-          Secondary tool — hypothesize about a single brand-new transaction. Every real transaction already
-          has a precomputed score; use the Explorer to look those up instead of retyping them here.
+          <span id="simulator-banner-text">Secondary tool — vary one real account's transaction and see how the score moves.</span>
+        </div>
+
+        <div class="card" style="margin-bottom:16px">
+          <p class="card-title">Why this is not a free-form "what-if"</p>
+          <p class="card-subtitle" id="simulator-note" style="line-height:1.6"></p>
         </div>
 
         <div class="simulator-layout">
           <div class="card">
-            <p class="card-title">Describe a hypothetical transaction</p>
+            <p class="card-title">Vary a transaction for an existing account</p>
             <form id="simulator-form" class="form-grid">
               <div class="form-field">
-                <label for="sim-account">Account ID (optional — blank = brand-new account)</label>
-                <input class="input" list="sim-account-list" id="sim-account" placeholder="e.g. AC00128" />
+                <label for="sim-account">Account ID (required — must exist in the data)</label>
+                <input class="input" list="sim-account-list" id="sim-account" placeholder="e.g. AC00454" required />
                 <datalist id="sim-account-list"></datalist>
               </div>
               <div class="form-field">
                 <label for="sim-amount">Transaction amount</label>
                 <input class="input" type="number" id="sim-amount" min="0.01" step="0.01" value="150" required />
+              </div>
+              <div class="form-field">
+                <label for="sim-balance">Account balance</label>
+                <input class="input" type="number" id="sim-balance" min="0" step="0.01" value="5000" required />
               </div>
               <div class="form-field">
                 <label for="sim-type">Transaction type</label>
@@ -285,26 +360,8 @@
                 <select class="select" id="sim-channel"><option>ATM</option><option>Online</option><option>Branch</option></select>
               </div>
               <div class="form-field">
-                <label for="sim-location">Location</label>
-                <select class="select" id="sim-location"></select>
-              </div>
-              <div class="form-field">
                 <label for="sim-occupation">Customer occupation</label>
                 <select class="select" id="sim-occupation"></select>
-              </div>
-              <div class="form-field">
-                <label for="sim-device">Device ID</label>
-                <input class="input" list="sim-device-list" id="sim-device" placeholder="e.g. D000553 or a new ID" />
-                <datalist id="sim-device-list"></datalist>
-              </div>
-              <div class="form-field">
-                <label for="sim-ip">IP address</label>
-                <input class="input" id="sim-ip" value="10.0.0.1" />
-              </div>
-              <div class="form-field">
-                <label for="sim-merchant">Merchant ID</label>
-                <input class="input" list="sim-merchant-list" id="sim-merchant" placeholder="e.g. M060" />
-                <datalist id="sim-merchant-list"></datalist>
               </div>
               <div class="form-field">
                 <label for="sim-age">Customer age</label>
@@ -319,11 +376,24 @@
                 <input class="input" type="number" id="sim-login" min="1" max="10" value="1" required />
               </div>
               <div class="form-field">
-                <label for="sim-balance">Account balance</label>
-                <input class="input" type="number" id="sim-balance" min="0" step="0.01" value="5000" required />
+                <label for="sim-location">Location <span class="freq-hint">real frequency used</span></label>
+                <select class="select" id="sim-location"></select>
+              </div>
+              <div class="form-field">
+                <label for="sim-device">Device ID <span class="freq-hint">real frequency used</span></label>
+                <select class="select" id="sim-device"></select>
+              </div>
+              <div class="form-field">
+                <label for="sim-ip">IP address <span class="freq-hint">real frequency used</span></label>
+                <select class="select" id="sim-ip"></select>
+              </div>
+              <div class="form-field">
+                <label for="sim-merchant">Merchant ID <span class="freq-hint">real frequency used</span></label>
+                <select class="select" id="sim-merchant"></select>
               </div>
               <div class="form-actions">
-                <button class="btn btn-primary" type="submit">Score this transaction</button>
+                <button class="btn btn-primary" type="submit">Score this scenario</button>
+                <span id="sim-account-summary" class="card-subtitle" style="margin-left:12px"></span>
               </div>
             </form>
           </div>
@@ -331,12 +401,16 @@
           <div class="card" id="simulator-result-card" style="display:none">
             <p class="card-title">Result</p>
             <div class="result-verdict-row">
-              <span id="sim-verdict-badge"></span>
+              <span id="sim-tier-badge"></span>
             </div>
             <div class="result-score tabular" id="sim-score"></div>
-            <p class="card-subtitle" id="sim-thresholds-note"></p>
-            <div class="drawer-section-title">Top contributing features</div>
-            <div id="chart-sim-shap"></div>
+            <p class="card-subtitle" id="sim-score-caption"></p>
+            <div class="field-grid" id="sim-detail-grid"></div>
+            <div class="drawer-section-title">Isolation Forest — feature attribution (exact, computed live)</div>
+            <div id="chart-sim-shap-if"></div>
+            <div class="drawer-section-title">Autoencoder — share of reconstruction error by feature</div>
+            <div id="chart-sim-shap-ae"></div>
+            <p class="card-subtitle section-gap" id="sim-score-note"></p>
           </div>
         </div>
       </section>

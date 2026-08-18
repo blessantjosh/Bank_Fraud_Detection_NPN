@@ -1,0 +1,41 @@
+[
+  {
+    "model": "XGBoost + SMOTE",
+    "precision_mean": 0.443465367965368,
+    "precision_std": 0.08248679783718244,
+    "recall_mean": 0.54640522875817,
+    "recall_std": 0.13407457678387544,
+    "f1_mean": 0.48704628704628705,
+    "f1_std": 0.09853085399431323,
+    "roc_auc_mean": 0.9149387290147579,
+    "roc_auc_std": 0.032731921921104495,
+    "pr_auc_mean": 0.5608528193790173,
+    "pr_auc_std": 0.07730075188338206
+  },
+  {
+    "model": "XGBoost + Class Weighting",
+    "precision_mean": 0.5607894736842105,
+    "precision_std": 0.08507617275513775,
+    "recall_mean": 0.5457516339869282,
+    "recall_std": 0.08077913133534823,
+    "f1_mean": 0.5526310401310401,
+    "f1_std": 0.08034930275699094,
+    "roc_auc_mean": 0.9486741655247085,
+    "roc_auc_std": 0.0195914400288223,
+    "pr_auc_mean": 0.6176778798630693,
+    "pr_auc_std": 0.05747891912838803
+  },
+  {
+    "model": "Random Forest (class_weight=balanced)",
+    "precision_mean": 0.39420674531155475,
+    "precision_std": 0.06296299693303636,
+    "recall_mean": 0.7320261437908497,
+    "recall_std": 0.09068259428438957,
+    "f1_mean": 0.5113040789438305,
+    "f1_std": 0.07184632680246392,
+    "roc_auc_mean": 0.9260929384696069,
+    "roc_auc_std": 0.0201353690026768,
+    "pr_auc_mean": 0.431619609220906,
+    "pr_auc_std": 0.1451483369464574
+  }
+]

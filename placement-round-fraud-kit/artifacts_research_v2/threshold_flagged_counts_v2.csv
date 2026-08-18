@@ -1,0 +1,11 @@
+method,threshold_value,n_flagged,pct_flagged,score,score_max,score_min
+P95,0.867124,126,5.016,,,
+P97,0.910861,76,3.025,,,
+P99,0.951023,26,1.035,,,
+P99.5,0.964634,13,0.518,,,
+mean+3sigma,1.175665,0,0.0,ensemble_percentile_average,0.995118,0.045842
+Q3+1.5*IQR,1.233169,0,0.0,ensemble_percentile_average,0.995118,0.045842
+mean+3sigma,0.04423,16,0.637,"score_isolation_forest (unbounded, for context)",0.114645,-0.154706
+Q3+1.5*IQR,0.031919,25,0.995,"score_isolation_forest (unbounded, for context)",0.114645,-0.154706
+mean+3sigma,2.193667,29,1.154,"ensemble_weighted_average (unbounded, for context)",7.43423,-1.24607
+Q3+1.5*IQR,1.546218,79,3.145,"ensemble_weighted_average (unbounded, for context)",7.43423,-1.24607

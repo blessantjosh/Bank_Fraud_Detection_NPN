@@ -1,4 +1,6 @@
 {
-  "review_threshold": 0.09,
-  "block_threshold": 0.9400000000000001
+  "review_threshold": 0.01,
+  "block_threshold": 0.97,
+  "selected_on": "val (chronological fold before test)",
+  "primary_model": "XGBoost + Class Weighting"
 }

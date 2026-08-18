@@ -1,22 +1,22 @@
-|--- Amount_vs_AccountAvg <= 1.57
+|--- TransactionAmount <= 812.07
 |   |--- LoginAttempts <= 2.50
-|   |   |--- DeviceNoveltyFlag <= 0.50
-|   |   |   |--- class: 1
-|   |   |--- DeviceNoveltyFlag >  0.50
+|   |   |--- Amount_vs_AccountAvg <= 19.71
 |   |   |   |--- class: 0
+|   |   |--- Amount_vs_AccountAvg >  19.71
+|   |   |   |--- class: 1
 |   |--- LoginAttempts >  2.50
-|   |   |--- AccountBalance <= 7793.22
+|   |   |--- TransactionAmount <= 79.79
+|   |   |   |--- class: 0
+|   |   |--- TransactionAmount >  79.79
 |   |   |   |--- class: 1
-|   |   |--- AccountBalance >  7793.22
-|   |   |   |--- class: 0
-|--- Amount_vs_AccountAvg >  1.57
-|   |--- Amount_vs_AccountAvg <= 8.06
-|   |   |--- TransactionAmount <= 823.88
-|   |   |   |--- class: 0
-|   |   |--- TransactionAmount >  823.88
+|--- TransactionAmount >  812.07
+|   |--- Amount_vs_AccountAvg <= 6.97
+|   |   |--- Amount_vs_AccountAvg <= 5.18
 |   |   |   |--- class: 1
-|   |--- Amount_vs_AccountAvg >  8.06
-|   |   |--- CustomerAge <= 22.50
+|   |   |--- Amount_vs_AccountAvg >  5.18
 |   |   |   |--- class: 0
-|   |   |--- CustomerAge >  22.50
+|   |--- Amount_vs_AccountAvg >  6.97
+|   |   |--- TransactionDuration <= 43.50
+|   |   |   |--- class: 0
+|   |   |--- TransactionDuration >  43.50
 |   |   |   |--- class: 1

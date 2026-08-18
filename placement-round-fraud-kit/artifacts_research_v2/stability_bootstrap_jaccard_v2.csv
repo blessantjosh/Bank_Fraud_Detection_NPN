@@ -1,0 +1,4 @@
+model,n_bootstrap_runs,mean_pairwise_jaccard_top5pct,min_pairwise_jaccard,max_pairwise_jaccard
+isolation_forest,5,0.6021,0.509,0.6689
+lof,5,0.5124,0.4651,0.575
+autoencoder,5,0.3726,0.2115,0.5849

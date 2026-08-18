@@ -1,0 +1,404 @@
+{
+  "isolation_forest": {
+    "configs_tried": [
+      {
+        "n_estimators": 100,
+        "max_samples": "auto",
+        "contamination": 0.05,
+        "max_features": 1.0,
+        "native_anomaly_rate": 0.05294585987261147,
+        "top5pct_score_std": 0.03793957919423947
+      },
+      {
+        "n_estimators": 200,
+        "max_samples": 0.8,
+        "contamination": 0.05,
+        "max_features": 1.0,
+        "native_anomaly_rate": 0.05334394904458599,
+        "top5pct_score_std": 0.03680983615713642
+      },
+      {
+        "n_estimators": 300,
+        "max_samples": 0.5,
+        "contamination": 0.05,
+        "max_features": 0.7,
+        "native_anomaly_rate": 0.054538216560509556,
+        "top5pct_score_std": 0.03649528444189196
+      },
+      {
+        "n_estimators": 200,
+        "max_samples": "auto",
+        "contamination": 0.1,
+        "max_features": 1.0,
+        "native_anomaly_rate": 0.10071656050955415,
+        "top5pct_score_std": 0.03692910087209791
+      },
+      {
+        "n_estimators": 200,
+        "max_samples": "auto",
+        "contamination": 0.03,
+        "max_features": 1.0,
+        "native_anomaly_rate": 0.033837579617834394,
+        "top5pct_score_std": 0.03692910087209791
+      }
+    ],
+    "selected_config": {
+      "n_estimators": 100,
+      "max_samples": "auto",
+      "contamination": 0.05,
+      "max_features": 1.0
+    },
+    "selected_native_anomaly_rate": 0.0529,
+    "fit_time_sec_all_configs": 4.48,
+    "cost_note": "O(n log n) per tree; fit+score of 5 configs x 2,512 rows x 18 features took 4.48s total on CPU."
+  },
+  "lof": {
+    "configs_tried": [
+      {
+        "n_neighbors": 10,
+        "contamination": 0.05,
+        "native_anomaly_rate": 0.03861464968152866
+      },
+      {
+        "n_neighbors": 20,
+        "contamination": 0.05,
+        "native_anomaly_rate": 0.044585987261146494
+      },
+      {
+        "n_neighbors": 35,
+        "contamination": 0.05,
+        "native_anomaly_rate": 0.04617834394904458
+      },
+      {
+        "n_neighbors": 20,
+        "contamination": 0.1,
+        "native_anomaly_rate": 0.09593949044585988
+      },
+      {
+        "n_neighbors": 20,
+        "contamination": 0.03,
+        "native_anomaly_rate": 0.02269108280254777
+      }
+    ],
+    "selected_config": {
+      "n_neighbors": 20,
+      "contamination": 0.05
+    },
+    "selected_native_anomaly_rate": 0.0446,
+    "fit_time_sec_all_configs": 4.002,
+    "cost_note": "O(n^2) neighbor search by default; novelty=True for out-of-sample scoring."
+  },
+  "ocsvm": {
+    "configs_tried": [
+      {
+        "kernel": "rbf",
+        "nu": 0.05,
+        "gamma": "scale",
+        "native_anomaly_rate": 0.05732484076433121
+      },
+      {
+        "kernel": "rbf",
+        "nu": 0.05,
+        "gamma": "auto",
+        "native_anomaly_rate": 0.05493630573248408
+      },
+      {
+        "kernel": "rbf",
+        "nu": 0.1,
+        "gamma": "scale",
+        "native_anomaly_rate": 0.10429936305732485
+      },
+      {
+        "kernel": "linear",
+        "nu": 0.05,
+        "gamma": "scale",
+        "native_anomaly_rate": 0.048964968152866245
+      },
+      {
+        "kernel": "poly",
+        "nu": 0.05,
+        "gamma": "scale",
+        "native_anomaly_rate": 0.07364649681528662
+      }
+    ],
+    "selected_config": {
+      "kernel": "rbf",
+      "nu": 0.05,
+      "gamma": "scale"
+    },
+    "selected_native_anomaly_rate": 0.0573,
+    "fit_time_sec_all_configs": 0.727,
+    "cost_note": "QP solve, roughly O(n^2)-O(n^3); 0.73s for 5 configs at n=2,512."
+  },
+  "elliptic_envelope": {
+    "configs_tried": [
+      {
+        "contamination": 0.05,
+        "support_fraction": null,
+        "native_anomaly_rate": 0.05015923566878981
+      },
+      {
+        "contamination": 0.05,
+        "support_fraction": 0.8,
+        "native_anomaly_rate": 0.04976114649681529
+      },
+      {
+        "contamination": 0.1,
+        "support_fraction": null,
+        "native_anomaly_rate": 0.09474522292993631
+      }
+    ],
+    "selected_config": {
+      "contamination": 0.05,
+      "support_fraction": null
+    },
+    "selected_native_anomaly_rate": 0.0502,
+    "shapiro_wilk_frac_features_non_normal_p_lt_0.05": 1.0,
+    "per_feature_shapiro_p": {
+      "TransactionAmount": 0.0,
+      "CustomerAge": 0.0,
+      "TransactionDuration": 0.0,
+      "LoginAttempts": 0.0,
+      "AccountBalance": 0.0,
+      "account_frequency": 0.0,
+      "device_frequency": 0.0,
+      "ip_frequency": 0.0,
+      "merchant_frequency": 0.0,
+      "amount_to_balance_ratio": 0.0,
+      "high_amount_transaction": 0.0,
+      "TransactionType_Debit": 0.0,
+      "Channel_Branch": 0.0,
+      "Channel_Online": 0.0,
+      "CustomerOccupation_Engineer": 0.0,
+      "CustomerOccupation_Retired": 0.0,
+      "CustomerOccupation_Student": 0.0,
+      "Location_FE": 0.0
+    },
+    "fit_time_sec_all_configs": 3.419,
+    "gaussian_assumption_note": "100.0% of the 18 scaled features reject the Shapiro-Wilk normality null at p<0.05. EllipticEnvelope assumes the joint feature distribution is multivariate Gaussian; this level of univariate non-normality means its MCD-based Mahalanobis distance should be read as a rough baseline, not a well-calibrated score."
+  },
+  "dbscan": {
+    "eps_from_kdistance_elbow": 2.6838,
+    "configs_tried": [
+      {
+        "eps": 2.147,
+        "min_samples": 5,
+        "noise_rate": 0.07921974522292993,
+        "n_clusters": 3
+      },
+      {
+        "eps": 2.147,
+        "min_samples": 10,
+        "noise_rate": 0.10191082802547771,
+        "n_clusters": 1
+      },
+      {
+        "eps": 2.147,
+        "min_samples": 15,
+        "noise_rate": 0.11385350318471338,
+        "n_clusters": 2
+      },
+      {
+        "eps": 2.684,
+        "min_samples": 5,
+        "noise_rate": 0.013136942675159236,
+        "n_clusters": 1
+      },
+      {
+        "eps": 2.684,
+        "min_samples": 10,
+        "noise_rate": 0.02269108280254777,
+        "n_clusters": 1
+      },
+      {
+        "eps": 2.684,
+        "min_samples": 15,
+        "noise_rate": 0.02746815286624204,
+        "n_clusters": 1
+      },
+      {
+        "eps": 3.221,
+        "min_samples": 5,
+        "noise_rate": 0.0035828025477707007,
+        "n_clusters": 1
+      },
+      {
+        "eps": 3.221,
+        "min_samples": 10,
+        "noise_rate": 0.005573248407643312,
+        "n_clusters": 1
+      },
+      {
+        "eps": 3.221,
+        "min_samples": 15,
+        "noise_rate": 0.009156050955414012,
+        "n_clusters": 1
+      }
+    ],
+    "selected_config": {
+      "eps": 2.684,
+      "min_samples": 10
+    },
+    "selected_noise_rate": 0.0227,
+    "selected_n_clusters": 1,
+    "fit_time_sec_all_configs": 0.637,
+    "note": "Noise rate ranges 0.4%-11.4% across the 3x3 eps/min_samples grid; 3 clusters max across the grid."
+  },
+  "hdbscan": {
+    "configs_tried": [
+      {
+        "min_cluster_size": 10,
+        "min_samples": 5,
+        "noise_rate": 0.08877388535031847,
+        "n_clusters": 2
+      },
+      {
+        "min_cluster_size": 20,
+        "min_samples": 10,
+        "noise_rate": 0.8606687898089171,
+        "n_clusters": 2
+      },
+      {
+        "min_cluster_size": 30,
+        "min_samples": 15,
+        "noise_rate": 0.9040605095541401,
+        "n_clusters": 2
+      },
+      {
+        "min_cluster_size": 15,
+        "min_samples": null,
+        "noise_rate": 0.9040605095541401,
+        "n_clusters": 2
+      }
+    ],
+    "selected_config": {
+      "min_cluster_size": 10,
+      "min_samples": 5
+    },
+    "selected_noise_rate": 0.0888,
+    "selected_n_clusters": 2,
+    "fit_time_sec_all_configs": 1.311,
+    "note": "Noise rate ranges 8.9%-90.4% across the 4 configs tried."
+  },
+  "kmeans": {
+    "k_range_tried": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "inertia_by_k": [
+      16688.89,
+      15172.79,
+      13730.34,
+      12351.22,
+      11781.51,
+      11298.34,
+      10867.33,
+      10506.02,
+      10208.7
+    ],
+    "silhouette_by_k": [
+      0.491,
+      0.2047,
+      0.1244,
+      0.1305,
+      0.1318,
+      0.112,
+      0.1098,
+      0.1089,
+      0.1103
+    ],
+    "silhouette_argmax_k": 2,
+    "degenerate_k_micro_cluster_sizes": {
+      "6": 18,
+      "7": 20,
+      "8": 19,
+      "9": 15,
+      "10": 20
+    },
+    "selected_k": 10,
+    "selected_k_rationale": "Chosen from the inertia elbow (first k whose marginal inertia drop falls below 15% of the k=2->3 drop); micro-clusters (<1% of train rows) excluded from centroid distance targets.",
+    "n_micro_clusters_at_selected_k": 1,
+    "top5pct_flagged_rate": 0.0502
+  },
+  "gmm": {
+    "n_range_tried": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "cov_types_tried": [
+      "full",
+      "diag",
+      "tied",
+      "spherical"
+    ],
+    "bic_by_cov": {
+      "full": [
+        62036.2,
+        53928.4,
+        21462.0,
+        10858.8,
+        21606.0,
+        22175.8,
+        -3519.3,
+        2693.2,
+        -8061.4,
+        -14073.3
+      ],
+      "diag": [
+        68111.1,
+        33291.6,
+        855.9,
+        2920.7,
+        2681.5,
+        1878.5,
+        -25559.1,
+        -23926.0,
+        -23533.1,
+        -27620.9
+      ],
+      "tied": [
+        62036.2,
+        60438.9,
+        59757.8,
+        59768.9,
+        56097.0,
+        56066.8,
+        36750.7,
+        34773.8,
+        2086.8,
+        1930.2
+      ],
+      "spherical": [
+        86842.1,
+        74300.0,
+        72239.3,
+        70907.6,
+        68112.7,
+        67607.0,
+        67181.8,
+        66341.5,
+        66037.2,
+        65479.1
+      ]
+    },
+    "selected_n_components": 10,
+    "selected_covariance_type": "diag",
+    "selected_bic": -27620.9,
+    "top5pct_flagged_rate": 0.0502
+  }
+}

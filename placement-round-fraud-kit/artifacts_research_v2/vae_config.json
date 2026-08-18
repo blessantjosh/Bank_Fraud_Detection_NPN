@@ -1,0 +1,33 @@
+{
+  "feature_cols": [
+    "TransactionAmount",
+    "CustomerAge",
+    "TransactionDuration",
+    "LoginAttempts",
+    "AccountBalance",
+    "account_frequency",
+    "device_frequency",
+    "ip_frequency",
+    "merchant_frequency",
+    "amount_to_balance_ratio",
+    "high_amount_transaction",
+    "TransactionType_Debit",
+    "Channel_Branch",
+    "Channel_Online",
+    "CustomerOccupation_Engineer",
+    "CustomerOccupation_Retired",
+    "CustomerOccupation_Student",
+    "Location_FE"
+  ],
+  "architecture": "input(18) -> 8 -> 4 -> [mu(3), logvar(3)] -> reparameterize -> 4 -> 8 -> output(18)",
+  "beta_kl_weight": 0.1,
+  "epochs": 200,
+  "fit_time_sec": 44.305,
+  "train_recon_mse_mean": 0.337132,
+  "val_recon_mse_mean": 0.345832,
+  "val_recon_mse_p95": 0.639382,
+  "val_recon_mse_p99": 0.84842,
+  "val_recon_mse_max": 1.213701,
+  "val_kl_mean": 1.195753,
+  "top5pct_flagged_rate": 0.0502
+}

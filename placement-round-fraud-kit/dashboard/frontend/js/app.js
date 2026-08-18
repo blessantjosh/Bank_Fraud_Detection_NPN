@@ -1,21 +1,23 @@
-/* Argus dashboard -- single-page app wiring. No framework, no build step. */
+/* Argus dashboard -- single-page app wiring. No framework, no build step.
+ * Wired to the research_v2 pipeline (teammate 18-feature matrix): risk score is
+ * `ensemble_percentile_average`, tiers are the Phase 13 (v2) percentile cutoffs,
+ * and explanations are the precomputed Isolation Forest / Autoencoder SHAP rows. */
 
 const NAV_META = {
   overview: { label: "Overview", icon: "overview", title: "Overview Dashboard", subtitle: "Portfolio-wide transaction risk, at a glance" },
   explorer: { label: "Transaction Explorer", icon: "explorer", title: "Transaction Explorer", subtitle: "Browse, search, and filter every scored transaction" },
   queue: { label: "Investigation Queue", icon: "queue", title: "Investigation Queue", subtitle: "Highest-risk transactions, sorted for triage" },
-  comparison: { label: "Model Comparison", icon: "comparison", title: "Model Comparison", subtitle: "Detector ensemble and supervised-model performance" },
-  explainability: { label: "Explainability", icon: "explainability", title: "Explainability", subtitle: "Why the model decides what it decides" },
-  simulator: { label: "What-if Simulator", icon: "simulator", title: "What-if Simulator", subtitle: "Secondary tool -- hypothesize about one new transaction" },
+  comparison: { label: "Model Comparison", icon: "comparison", title: "Model Comparison", subtitle: "Twelve unsupervised models on one shared feature matrix" },
+  explainability: { label: "Explainability", icon: "explainability", title: "Explainability", subtitle: "Two structurally different views of why a transaction scores high" },
+  simulator: { label: "Scenario Simulator", icon: "simulator", title: "Account Scenario Simulator", subtitle: "Secondary tool -- vary one real account's transaction" },
 };
-
-const DETECTOR_LABELS = { isoforest: "Isolation Forest", lof: "LOF", ocsvm: "One-Class SVM", mcd: "Elliptic Envelope (MCD)" };
 
 let currentPage = "overview";
 let overviewData = null;
 let comparisonData = null;
 let explainabilityData = null;
 let lastSimResult = null;
+let simOptions = null;
 
 const explorerState = {
   q: "", risk_tier: "", channel: "", txn_type: "", amount_min: "", amount_max: "",
@@ -29,20 +31,11 @@ const queueState = { status: "", page: 1, page_size: 25 };
 function badgeHtml(status, label, icon) {
   return `<span class="badge badge-${status}">${icon}${Fmt.escapeHtml(label)}</span>`;
 }
-function riskBadge(tierCode, verdictCode) {
+function riskBadge(tierCode) {
+  if (tierCode === "priority") return badgeHtml("critical", "Priority review", Icons.critical);
+  if (tierCode === "standard") return badgeHtml("warning", "Standard review", Icons.warning);
   if (tierCode === "normal") return badgeHtml("good", "Normal", Icons.good);
-  if (tierCode === "medium") return badgeHtml("warning", "Needs review", Icons.warning);
-  if (tierCode === "high") {
-    return verdictCode === "block"
-      ? badgeHtml("critical", "Blocked", Icons.critical)
-      : badgeHtml("serious", "High risk", Icons.serious);
-  }
   return badgeHtml("neutral", "Unknown", "");
-}
-function verdictBadge(code) {
-  if (code === "approve") return badgeHtml("good", "Auto-approve", Icons.good);
-  if (code === "review") return badgeHtml("warning", "Manual review", Icons.warning);
-  return badgeHtml("critical", "Block", Icons.critical);
 }
 function queueStatusBadge(action) {
   if (action === "approved") return badgeHtml("good", "Approved", Icons.good);
@@ -82,6 +75,7 @@ function showToast(msg) {
     setTimeout(() => t.remove(), 200);
   }, 2600);
 }
+const num = (v, d = 3) => (v === null || v === undefined ? "—" : Number(v).toFixed(d));
 
 function txRowHtml(tx, includeType) {
   const typeCell = includeType ? `<td>${Fmt.escapeHtml(tx.txn_type)}</td>` : "";
@@ -92,7 +86,7 @@ function txRowHtml(tx, includeType) {
     <td class="num tabular">${Fmt.money(tx.amount)}</td>
     <td>${Fmt.escapeHtml(tx.channel)}</td>
     ${typeCell}
-    <td>${riskBadge(tx.risk_tier_code, tx.verdict_code)}</td>
+    <td>${riskBadge(tx.risk_tier_code)}</td>
     <td class="num tabular">${Fmt.score(tx.risk_score)}</td>
   </tr>`;
 }
@@ -110,10 +104,13 @@ async function loadOverview() {
     }
     document.querySelectorAll(".kpi-value").forEach((el) => el.classList.remove("skeleton-loading"));
     Fmt.countUp(document.querySelector('[data-kpi="total"]'), overviewData.total_transactions, { formatter: Fmt.int });
-    Fmt.countUp(document.querySelector('[data-kpi="high"]'), overviewData.high_risk_count, { formatter: Fmt.int });
-    Fmt.countUp(document.querySelector('[data-kpi="review"]'), overviewData.review_count, { formatter: Fmt.int });
+    Fmt.countUp(document.querySelector('[data-kpi="priority"]'), overviewData.priority_count, { formatter: Fmt.int });
+    Fmt.countUp(document.querySelector('[data-kpi="standard"]'), overviewData.standard_count, { formatter: Fmt.int });
     Fmt.countUp(document.querySelector('[data-kpi="flagrate"]'), overviewData.flag_rate, { formatter: Fmt.pct, decimals: 4 });
     Fmt.countUp(document.querySelector('[data-kpi="avgamount"]'), overviewData.avg_amount, { formatter: Fmt.money, decimals: 2 });
+    document.getElementById("tier-distribution-subtitle").textContent =
+      `${Fmt.int(overviewData.total_transactions)} transactions — priority at ensemble score ≥ ${overviewData.priority_threshold} (99th pct), ` +
+      `standard at ≥ ${overviewData.standard_threshold} (95th pct). No automatic block tier.`;
   }
   renderOverviewCharts(overviewData);
   const tbody = document.querySelector("#table-top-risk tbody");
@@ -121,7 +118,11 @@ async function loadOverview() {
 }
 
 function renderOverviewCharts(data) {
-  const tierColor = { high: Charts.cssVar("--status-critical"), medium: Charts.cssVar("--status-warning"), normal: Charts.cssVar("--status-good") };
+  const tierColor = {
+    priority: Charts.cssVar("--status-critical"),
+    standard: Charts.cssVar("--status-warning"),
+    normal: Charts.cssVar("--status-good"),
+  };
   Charts.renderBarChart(document.getElementById("chart-tier-distribution"), {
     data: data.tier_distribution.map((t) => ({ label: t.tier, value: t.count, color: tierColor[t.code] })),
     valueFormatter: Fmt.int,
@@ -193,14 +194,9 @@ function wireExplorerControls() {
   document.getElementById("explorer-date-end").addEventListener("change", (e) => { explorerState.date_end = e.target.value; explorerState.page = 1; loadExplorer(); });
   document.getElementById("explorer-reset").addEventListener("click", () => {
     Object.assign(explorerState, { q: "", risk_tier: "", channel: "", txn_type: "", amount_min: "", amount_max: "", date_start: "", date_end: "", sort_by: "date", sort_dir: "desc", page: 1 });
-    document.getElementById("explorer-search").value = "";
-    document.getElementById("explorer-risk-tier").value = "";
-    document.getElementById("explorer-channel").value = "";
-    document.getElementById("explorer-txn-type").value = "";
-    document.getElementById("explorer-amount-min").value = "";
-    document.getElementById("explorer-amount-max").value = "";
-    document.getElementById("explorer-date-start").value = "";
-    document.getElementById("explorer-date-end").value = "";
+    ["explorer-search", "explorer-risk-tier", "explorer-channel", "explorer-txn-type",
+     "explorer-amount-min", "explorer-amount-max", "explorer-date-start", "explorer-date-end"]
+      .forEach((id) => { document.getElementById(id).value = ""; });
     loadExplorer();
   });
   document.querySelectorAll("#table-explorer th[data-sort]").forEach((th) => {
@@ -238,7 +234,7 @@ async function loadQueue() {
       <td>${Fmt.escapeHtml(tx.transaction_id)}</td>
       <td>${Fmt.escapeHtml(tx.account_id)}</td>
       <td class="num tabular">${Fmt.money(tx.amount)}</td>
-      <td>${riskBadge(tx.risk_tier_code, tx.verdict_code)}</td>
+      <td>${riskBadge(tx.risk_tier_code)}</td>
       <td class="num tabular">${Fmt.score(tx.risk_score)}</td>
       <td>${queueStatusBadge(tx.queue_action)}</td>
       <td>
@@ -290,48 +286,69 @@ async function loadComparison() {
 }
 
 function renderComparison(data) {
-  const seriesColors = [Charts.cssVar("--series-1-blue"), Charts.cssVar("--series-2-orange"), Charts.cssVar("--series-3-aqua"), Charts.cssVar("--series-4-yellow")];
-  const tbody = document.querySelector("#table-detectors tbody");
-  tbody.innerHTML = data.detectors.map((d, i) => `<tr>
-      <td><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${seriesColors[i]};margin-right:7px"></span>${Fmt.escapeHtml(d.name)}</td>
-      <td class="num tabular">${Fmt.int(d.flagged)}</td>
-      <td class="num tabular">${Fmt.pct(d.rate)}</td>
+  const tbody = document.querySelector("#table-models tbody");
+  tbody.innerHTML = data.models.map((m) => `<tr>
+      <td>${Fmt.escapeHtml(m.label)}${m.in_ensemble ? "" : ' <span class="freq-hint">not an ensemble input</span>'}</td>
+      <td class="num tabular">${m.n_flagged_top5pct === null ? "—" : Fmt.int(m.n_flagged_top5pct)}</td>
+      <td class="num tabular">${m.flagged_rate_pct === null || m.flagged_rate_pct === undefined ? "—" : m.flagged_rate_pct.toFixed(2) + "%"}</td>
+      <td class="num tabular">${num(m.silhouette, 4)}</td>
+      <td class="num tabular">${num(m.davies_bouldin, 4)}</td>
+      <td class="num tabular">${m.calinski_harabasz === null ? "—" : m.calinski_harabasz.toFixed(2)}</td>
+      <td class="num tabular">${num(m.mean_spearman, 3)}</td>
+      <td class="num tabular">${num(m.mean_jaccard, 3)}</td>
+      <td class="num tabular">${num(m.ensemble_weight, 3)}</td>
     </tr>`).join("");
 
-  Charts.renderBarChart(document.getElementById("chart-vote-distribution"), {
-    data: data.vote_distribution.map((v) => ({ label: `${v.votes} vote${v.votes === 1 ? "" : "s"}`, value: v.count, color: Charts.cssVar("--series-1-blue") })),
-    valueFormatter: Fmt.int,
-  });
+  document.getElementById("model-table-note").textContent =
+    `Flagged counts are each model's top-5%-by-score partition. LSTM-AE is restricted to the ` +
+    `2,402 of 2,512 rows whose account has ≥3 transactions; the Hybrid Ensemble's row is measured on a ` +
+    `269-row ≥1-vote partition, not its native 83-row ≥2-of-3 flag. Mean ρ / Jaccard are self-excluded ` +
+    `pairwise means over the other 11 models.`;
 
-  const s1 = Charts.cssVar("--series-1-blue"), s2 = Charts.cssVar("--series-2-orange");
-  const smote = data.xgboost_variants[0], cw = data.xgboost_variants[1];
-  Charts.renderGroupedBarChart(document.getElementById("chart-model-variants"), {
-    groups: [
-      { label: "ROC-AUC", bars: [{ label: smote.name, value: smote.roc_auc, color: s1 }, { label: cw.name, value: cw.roc_auc, color: s2 }] },
-      { label: "PR-AUC", bars: [{ label: smote.name, value: smote.pr_auc, color: s1 }, { label: cw.name, value: cw.pr_auc, color: s2 }] },
-    ],
+  const validityModels = data.models.filter((m) => m.silhouette !== null);
+  Charts.renderHBarChart(document.getElementById("chart-validity"), {
+    data: validityModels.slice().reverse().map((m) => ({ label: m.label, value: m.silhouette })),
+    diverging: false, valueFormatter: (v) => v.toFixed(3),
+  });
+  document.getElementById("validity-note").textContent =
+    `Top-5%-flagged vs. rest in the shared scaled 18-feature space. Higher is better separated — but a ` +
+    `top-5%-by-distance cut is structurally favoured by a distance-based index, which is why the ` +
+    `reconstruction-error models sit lowest.`;
+
+  Charts.renderBarChart(document.getElementById("chart-stability"), {
+    data: data.stability.map((s, i) => ({
+      label: s.label, value: s.mean_jaccard,
+      color: [Charts.cssVar("--series-3-aqua"), Charts.cssVar("--series-4-yellow"), Charts.cssVar("--series-8-red")][i % 3],
+    })),
     valueFormatter: (v) => v.toFixed(3),
-    legend: [{ label: smote.name, color: s1 }, { label: cw.name, color: s2 }],
   });
-  document.getElementById("primary-model-note").textContent = data.primary_model_note;
+  document.getElementById("stability-note").textContent =
+    data.stability.map((s) => `${s.label}: mean ${s.mean_jaccard} (min ${s.min_jaccard}, max ${s.max_jaccard})`).join(" · ")
+    + ". " + data.notes.stability;
 
-  const cm = data.confusion_matrix;
-  document.getElementById("confusion-matrix").innerHTML = `
-    <div class="confusion-grid">
-      <div class="cm-label"></div><div class="cm-label">Predicted: Normal</div><div class="cm-label">Predicted: Fraud</div>
-      <div class="cm-label">Actual: Normal</div>
-      <div class="cm-cell cm-good"><div class="cm-count tabular">${cm.tn}</div><div class="cm-name">${Icons.good} True negative</div></div>
-      <div class="cm-cell cm-warning"><div class="cm-count tabular">${cm.fp}</div><div class="cm-name">${Icons.warning} False positive</div></div>
-      <div class="cm-label">Actual: Fraud</div>
-      <div class="cm-cell cm-critical"><div class="cm-count tabular">${cm.fn}</div><div class="cm-name">${Icons.critical} False negative</div></div>
-      <div class="cm-cell cm-good"><div class="cm-count tabular">${cm.tp}</div><div class="cm-name">${Icons.good} True positive</div></div>
-    </div>`;
-  document.getElementById("confusion-subtitle").textContent =
-    `n=${cm.n} · threshold ${cm.threshold} · precision ${cm.precision} · recall ${cm.recall} · F1 ${cm.f1} · ROC-AUC ${cm.roc_auc} · PR-AUC ${cm.pr_auc}`;
+  const weighted = data.models.filter((m) => m.ensemble_weight !== null)
+    .slice().sort((a, b) => a.ensemble_weight - b.ensemble_weight);
+  Charts.renderHBarChart(document.getElementById("chart-weights"), {
+    data: weighted.map((m) => ({ label: m.label, value: m.ensemble_weight })),
+    diverging: false, valueFormatter: (v) => v.toFixed(3),
+  });
+  document.getElementById("dbscan-note").textContent = data.notes.dbscan;
 
-  document.getElementById("naive-accuracy").textContent = Fmt.pct(data.accuracy_contrast.naive_accuracy);
-  document.getElementById("model-accuracy").textContent = Fmt.pct(data.accuracy_contrast.model_accuracy);
-  document.getElementById("accuracy-explanation").textContent = data.accuracy_contrast.explanation;
+  const stbody = document.querySelector("#table-strategies tbody");
+  stbody.innerHTML = data.strategy_pairs.map((p) => `<tr>
+      <td>${Fmt.escapeHtml(p.pair)}</td>
+      <td class="num tabular">${p.spearman.toFixed(4)}</td>
+      <td class="num tabular">${p.jaccard.toFixed(3)}</td>
+    </tr>`).join("");
+  document.getElementById("strategy-note").textContent =
+    `${data.notes.strategies} PCA stacking's first component explains ` +
+    `${(data.pc1_explained_variance * 100).toFixed(1)}% of the variance across the 11 standardised score columns. ` +
+    `Recommended: ${data.recommended_strategy}.`;
+
+  document.getElementById("leaderboard-note").textContent = data.notes.leaderboard;
+  document.getElementById("ee-note").textContent = data.notes.elliptic_envelope;
+  document.getElementById("agreement-note").textContent = data.notes.agreement;
+  document.getElementById("hybrid-note").textContent = data.notes.hybrid;
 }
 
 // ---------------------------------------------------------------------
@@ -346,104 +363,197 @@ async function loadExplainability() {
 }
 
 function renderExplainability(data) {
-  Charts.renderHBarChart(document.getElementById("chart-shap-global"), {
-    data: data.global_shap_importance.map((f) => ({ label: f.label, value: f.mean_abs_shap })),
+  const d = data.divergence;
+  document.getElementById("shap-rho").textContent = d.spearman_rho.toFixed(4);
+  document.getElementById("shap-overlap").textContent = `${d.top10_overlap} of 10`;
+  document.getElementById("divergence-explanation").textContent = d.explanation;
+
+  Charts.renderHBarChart(document.getElementById("chart-shap-if"), {
+    data: data.global_shap.isolation_forest.slice().reverse().map((f) => ({ label: f.label, value: f.mean_abs_shap })),
     diverging: false, valueFormatter: (v) => v.toFixed(3),
   });
+  Charts.renderHBarChart(document.getElementById("chart-shap-ae"), {
+    data: data.global_shap.autoencoder.slice().reverse().map((f) => ({ label: f.label, value: f.mean_abs_shap })),
+    diverging: false, valueFormatter: (v) => v.toFixed(4),
+  });
 
-  document.getElementById("rules-list").innerHTML = data.decision_tree_rules.map((r) => `
-    <div class="rule-card">
-      <div class="rule-if">If</div>
-      <div class="rule-conditions">${r.conditions.map((c) => `<code>${Fmt.escapeHtml(c)}</code>`).join(" <strong>and</strong> ")}</div>
-      <div class="rule-then">${r.outcome_code === "1" ? badgeHtml("serious", "Flag as fraud", Icons.serious) : badgeHtml("good", "Clear as normal", Icons.good)}</div>
+  document.getElementById("worked-examples").innerHTML = d.worked_examples.map((w) => `
+    <div class="worked-case">
+      <div class="worked-case-id">${Fmt.escapeHtml(w.transaction_id)}</div>
+      <div class="worked-case-note">${Fmt.escapeHtml(w.note)}</div>
     </div>`).join("");
 
-  const sweep = data.cost_sweep;
-  Charts.renderLineChart(document.getElementById("chart-cost-sweep"), {
-    data: sweep.points.map((p) => ({ x: p.threshold, y: p.cost })),
+  const sd = data.score_distribution;
+  document.getElementById("score-dist-subtitle").textContent =
+    `ensemble_percentile_average across all 2,512 transactions — mean ${sd.mean}, std ${sd.std}, ` +
+    `min ${sd.min}, max ${sd.max}. The two markers are the Phase 13 review cutoffs.`;
+  const p99 = data.percentile_thresholds.find((t) => t.method === "P99");
+  const p95 = data.percentile_thresholds.find((t) => t.method === "P95");
+  Charts.renderLineChart(document.getElementById("chart-score-dist"), {
+    data: data.score_histogram.map((h) => ({ x: h.x, y: h.count })),
     color: Charts.cssVar("--series-1-blue"), area: true,
-    xFormatter: (v) => v.toFixed(2), yFormatter: (v) => Fmt.money(v),
+    xFormatter: (v) => v.toFixed(2), yFormatter: Fmt.int,
     markers: [
-      { x: sweep.min_threshold, label: `min-cost ${sweep.min_threshold}`, color: Charts.cssVar("--series-7-violet") },
-      { x: sweep.default_threshold, label: "default 0.50", color: Charts.cssVar("--text-secondary") },
+      { x: p95.threshold, label: `P95 ${p95.threshold}`, color: Charts.cssVar("--status-warning") },
+      { x: p99.threshold, label: `P99 ${p99.threshold}`, color: Charts.cssVar("--status-critical") },
     ],
   });
-  document.getElementById("cost-sweep-subtitle").textContent =
-    `Illustrative costs (FP $${sweep.cost_false_positive.toFixed(0)}, FN $${sweep.cost_false_negative.toFixed(0)}) -- ` +
-    `minimum total cost ${Fmt.money(sweep.min_cost)} at threshold ${sweep.min_threshold}, versus ${Fmt.money(sweep.default_cost)} at the naive default of 0.50.`;
+
+  document.querySelector("#table-thresholds tbody").innerHTML = data.percentile_thresholds.map((t) => `<tr>
+      <td>${Fmt.escapeHtml(t.method)}</td>
+      <td class="num tabular">${t.threshold.toFixed(4)}</td>
+      <td class="num tabular">${Fmt.int(t.n_flagged)}</td>
+      <td class="num tabular">${t.pct_flagged.toFixed(3)}%</td>
+      <td class="num tabular">${t.per_day.toFixed(3)}</td>
+      <td class="num tabular">${Fmt.money(t.review_cost_ceiling)}</td>
+    </tr>`).join("");
+  document.getElementById("cost-note").textContent = data.cost_note;
+
+  document.querySelector("#table-stat-thresholds tbody").innerHTML = data.statistical_thresholds.map((t) => `<tr>
+      <td>${Fmt.escapeHtml(t.method)}</td>
+      <td style="font-size:11.5px">${Fmt.escapeHtml(t.score)}</td>
+      <td class="num tabular">${t.threshold.toFixed(4)}</td>
+      <td class="num tabular"><strong>${Fmt.int(t.n_flagged)}</strong></td>
+    </tr>`).join("");
+  document.getElementById("stat-finding").textContent = data.statistical_finding;
 }
 
 // ---------------------------------------------------------------------
-// what-if simulator
+// account scenario simulator
 // ---------------------------------------------------------------------
-let simOptionsLoaded = false;
 async function loadSimulatorOptions() {
-  if (simOptionsLoaded) return;
+  if (simOptions) return;
   try {
-    const opts = await Api.simulatorOptions();
-    fillDatalist("sim-account-list", opts.accounts);
-    fillDatalist("sim-device-list", opts.devices);
-    fillDatalist("sim-merchant-list", opts.merchants);
-    fillSelect("sim-location", opts.locations);
-    fillSelect("sim-occupation", opts.occupations);
-    simOptionsLoaded = true;
+    simOptions = await Api.simulatorOptions();
+    fillDatalist("sim-account-list", simOptions.accounts);
+    fillSelect("sim-location", simOptions.locations);
+    fillSelect("sim-occupation", simOptions.occupations);
+    fillSelect("sim-device", simOptions.devices);
+    fillSelect("sim-ip", simOptions.ip_addresses);
+    fillSelect("sim-merchant", simOptions.merchants);
+    document.getElementById("simulator-note").textContent = simOptions.note;
+    document.getElementById("simulator-banner-text").textContent =
+      `Secondary tool — vary one real account's transaction and see how the score moves. ` +
+      `The high-amount flag fires above $${simOptions.high_amount_threshold} (the dataset's 95th percentile, frozen).`;
   } catch (e) {
     showToast(`Could not load simulator reference data: ${e.message}`);
   }
 }
 
+async function loadSimAccountDefaults(accountId) {
+  if (!accountId) return;
+  let acc;
+  try { acc = await Api.simulatorAccount(accountId); }
+  catch (e) {
+    document.getElementById("sim-account-summary").textContent = e.message;
+    return;
+  }
+  const d = acc.defaults;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set("sim-amount", d.amount);
+  set("sim-balance", d.account_balance);
+  set("sim-age", d.customer_age);
+  set("sim-duration", d.duration_seconds);
+  set("sim-login", d.login_attempts);
+  set("sim-type", d.txn_type);
+  set("sim-channel", d.channel);
+  set("sim-occupation", d.customer_occupation);
+  set("sim-location", d.location);
+  set("sim-device", d.device_id);
+  set("sim-ip", d.ip_address);
+  set("sim-merchant", d.merchant_id);
+  document.getElementById("sim-account-summary").textContent =
+    `${accountId}: ${acc.n_transactions} transactions in the dataset (account_frequency = ${acc.account_frequency}). ` +
+    `Fields prefilled from its most recent transaction.`;
+}
+
 function wireSimulatorForm() {
+  document.getElementById("sim-account").addEventListener("change", (e) => {
+    loadSimAccountDefaults(e.target.value.trim());
+  });
   document.getElementById("simulator-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const payload = {
-      account_id: document.getElementById("sim-account").value.trim() || null,
+      account_id: document.getElementById("sim-account").value.trim(),
       amount: parseFloat(document.getElementById("sim-amount").value),
+      account_balance: parseFloat(document.getElementById("sim-balance").value),
       txn_type: document.getElementById("sim-type").value,
       channel: document.getElementById("sim-channel").value,
       location: document.getElementById("sim-location").value,
       customer_occupation: document.getElementById("sim-occupation").value,
-      device_id: document.getElementById("sim-device").value.trim() || "D_NEW",
-      ip_address: document.getElementById("sim-ip").value.trim() || "10.0.0.1",
-      merchant_id: document.getElementById("sim-merchant").value.trim() || "M_NEW",
+      device_id: document.getElementById("sim-device").value,
+      ip_address: document.getElementById("sim-ip").value,
+      merchant_id: document.getElementById("sim-merchant").value,
       customer_age: parseInt(document.getElementById("sim-age").value, 10),
       duration_seconds: parseInt(document.getElementById("sim-duration").value, 10),
       login_attempts: parseInt(document.getElementById("sim-login").value, 10),
-      account_balance: parseFloat(document.getElementById("sim-balance").value),
     };
     try {
       lastSimResult = await Api.score(payload);
       renderSimResult(lastSimResult);
     } catch (e2) {
-      showToast(`Could not score this transaction: ${e2.message}`);
+      showToast(`Could not score this scenario: ${e2.message}`);
     }
   });
 }
 
-function renderSimResult(result) {
-  document.getElementById("simulator-result-card").style.display = "block";
-  document.getElementById("sim-verdict-badge").innerHTML = verdictBadge(result.verdict_code);
-  document.getElementById("sim-score").textContent = Fmt.score(result.risk_score);
-  document.getElementById("sim-thresholds-note").textContent =
-    `Review threshold ${Fmt.score(result.review_threshold)} · Block threshold ${Fmt.score(result.block_threshold)}`;
-  renderSimShap(result);
+function fieldItem(label, value) {
+  return `<div class="field-item"><div class="field-label">${label}</div><div class="field-value">${value}</div></div>`;
 }
-function renderSimShap(result) {
-  if (!result) return;
-  Charts.renderHBarChart(document.getElementById("chart-sim-shap"), {
-    data: result.shap.map((s) => ({ label: s.label, value: s.shap_value })),
+
+function renderSimResult(r) {
+  document.getElementById("simulator-result-card").style.display = "block";
+  document.getElementById("sim-tier-badge").innerHTML = riskBadge(r.risk_tier_code);
+  document.getElementById("sim-score").textContent = Fmt.score(r.two_model_percentile_average);
+  document.getElementById("sim-score-caption").textContent =
+    `Two-model percentile average — Isolation Forest at the ${(r.isolation_forest.percentile * 100).toFixed(1)}th percentile ` +
+    `(score ${r.isolation_forest.score}), Autoencoder at the ${(r.autoencoder.percentile * 100).toFixed(1)}th ` +
+    `(reconstruction MSE ${r.autoencoder.score}). This scenario sits at the ` +
+    `${(r.two_model_reference_percentile * 100).toFixed(1)}th percentile of the two-model reference distribution.`;
+
+  const f = r.frequency_inputs_used;
+  document.getElementById("sim-detail-grid").innerHTML = [
+    fieldItem("Account frequency (real)", `${f.account_frequency} txns`),
+    fieldItem("Device frequency (real)", `${f.device_frequency} txns`),
+    fieldItem("IP frequency (real)", `${f.ip_frequency} txns`),
+    fieldItem("Merchant frequency (real)", `${f.merchant_frequency} txns`),
+    fieldItem("Location share (real)", `${f.location_share_pct}%`),
+    fieldItem("Amount / (balance + 1)", r.derived.amount_to_balance_ratio_raw),
+    fieldItem("High-amount flag", r.derived.high_amount_flag ? `Yes (> $${r.derived.high_amount_threshold})` : `No (≤ $${r.derived.high_amount_threshold})`),
+  ].join("");
+
+  document.getElementById("sim-score-note").textContent = r.score_note;
+  renderSimCharts(r);
+}
+
+function renderSimCharts(r) {
+  if (!r) return;
+  Charts.renderHBarChart(document.getElementById("chart-sim-shap-if"), {
+    data: r.shap_isolation_forest.slice().reverse().map((s) => ({ label: s.label, value: s.shap_value })),
     diverging: true, valueFormatter: (v) => v.toFixed(3),
-    legend: [{ label: "Increases risk", color: Charts.cssVar("--series-2-orange") }, { label: "Decreases risk", color: Charts.cssVar("--series-1-blue") }],
+    legend: [
+      { label: "Increases anomaly score", color: Charts.cssVar("--series-2-orange") },
+      { label: "Decreases anomaly score", color: Charts.cssVar("--series-1-blue") },
+    ],
+  });
+  Charts.renderHBarChart(document.getElementById("chart-sim-shap-ae"), {
+    data: r.autoencoder_error_contributions.slice().reverse().map((s) => ({
+      label: `${s.label} (${(s.share_of_error * 100).toFixed(1)}%)`, value: s.shap_value,
+    })),
+    diverging: false, valueFormatter: (v) => v.toFixed(4),
   });
 }
 
 // ---------------------------------------------------------------------
 // detail drawer
 // ---------------------------------------------------------------------
-function fieldItem(label, value) {
-  return `<div class="field-item"><div class="field-label">${label}</div><div class="field-value">${value}</div></div>`;
-}
-function detectorChip(key, flagged) {
-  return `<span class="detector-chip ${flagged ? "flagged" : "clear"}">${flagged ? Icons.serious : Icons.good}&nbsp;${DETECTOR_LABELS[key]}</span>`;
+function modelChip(m) {
+  if (!m.applicable) {
+    return `<span class="model-chip na" title="Not applicable to this row">${Fmt.escapeHtml(m.label)} · n/a</span>`;
+  }
+  const cls = m.flagged ? "model-chip flagged" : "model-chip";
+  const icon = m.flagged ? Icons.serious : Icons.good;
+  return `<span class="${cls}">${icon}&nbsp;${Fmt.escapeHtml(m.label)} <span class="pct">${(m.percentile * 100).toFixed(1)}%</span></span>`;
 }
 
 async function openDrawer(txId) {
@@ -472,8 +582,8 @@ function renderDrawer(d) {
   const body = document.getElementById("drawer-body");
   body.innerHTML = `
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      ${riskBadge(d.risk.risk_tier_code, d.risk.verdict_code)}
-      ${verdictBadge(d.risk.verdict_code)}
+      ${riskBadge(d.risk.risk_tier_code)}
+      <span class="badge badge-neutral">Rank ${d.risk.score_rank} of 2,512</span>
     </div>
     <div class="field-grid">
       ${fieldItem("Amount", Fmt.money(r.amount))}
@@ -489,24 +599,35 @@ function renderDrawer(d) {
       ${fieldItem("Duration", `${r.duration_seconds}s`)}
       ${fieldItem("Login attempts", r.login_attempts)}
       ${fieldItem("Account balance", Fmt.money(r.account_balance))}
-      ${fieldItem("Risk score", Fmt.score(d.risk.risk_score))}
-      ${fieldItem("Detector votes", `${d.risk.vote_count} / 4`)}
+      ${fieldItem("Amount / balance", `${r.amount_to_balance_ratio}×`)}
+      ${fieldItem("Ensemble score", Fmt.score(d.risk.risk_score))}
+      ${fieldItem("Score percentile", `${(d.risk.score_percentile * 100).toFixed(1)}%`)}
+      ${fieldItem("Models flagging", `${d.risk.models_flagged} / ${d.risk.models_applicable}`)}
       ${fieldItem("Queue status", queueStatusBadge(d.queue_action))}
     </div>
-    <div class="drawer-section-title">Flagged by</div>
-    <div class="detector-chips">
-      ${detectorChip("isoforest", d.detectors.isoforest)}
-      ${detectorChip("lof", d.detectors.lof)}
-      ${detectorChip("ocsvm", d.detectors.ocsvm)}
-      ${detectorChip("mcd", d.detectors.mcd)}
-    </div>
-    <div class="drawer-section-title">Top contributing features (SHAP)</div>
-    <div id="drawer-shap-chart"></div>
+    <div class="drawer-section-title">Per-model position (percentile of that model's own score)</div>
+    <div class="model-chip-grid">${d.models.map(modelChip).join("")}</div>
+    <div class="shap-dual-title">Isolation Forest — SHAP (exact, precomputed)</div>
+    <div id="drawer-shap-if"></div>
+    <div class="shap-dual-title">Autoencoder — SHAP (reconstruction error, precomputed)</div>
+    <div id="drawer-shap-ae"></div>
+    <p class="card-subtitle" style="margin-top:10px;line-height:1.55">
+      Both explanations are shown because the two models attribute their scores almost oppositely
+      (ρ = −0.3705 across all 18 features). Reading only one gives an incomplete picture of why this
+      transaction was flagged.
+    </p>
   `;
-  Charts.renderHBarChart(document.getElementById("drawer-shap-chart"), {
-    data: d.shap.slice(0, 8).map((s) => ({ label: s.label, value: s.shap_value })),
-    diverging: true, valueFormatter: (v) => v.toFixed(3),
-    legend: [{ label: "Increases risk", color: Charts.cssVar("--series-2-orange") }, { label: "Decreases risk", color: Charts.cssVar("--series-1-blue") }],
+  const legend = [
+    { label: "Increases anomaly score", color: Charts.cssVar("--series-2-orange") },
+    { label: "Decreases anomaly score", color: Charts.cssVar("--series-1-blue") },
+  ];
+  Charts.renderHBarChart(document.getElementById("drawer-shap-if"), {
+    data: d.shap_isolation_forest.slice(0, 6).reverse().map((s) => ({ label: s.label, value: s.shap_value })),
+    diverging: true, valueFormatter: (v) => v.toFixed(3), legend,
+  });
+  Charts.renderHBarChart(document.getElementById("drawer-shap-ae"), {
+    data: d.shap_autoencoder.slice(0, 6).reverse().map((s) => ({ label: s.label, value: s.shap_value })),
+    diverging: true, valueFormatter: (v) => v.toFixed(4), legend,
   });
 }
 
@@ -554,7 +675,7 @@ function rerenderCurrentPageCharts() {
   if (currentPage === "overview" && overviewData) renderOverviewCharts(overviewData);
   else if (currentPage === "comparison" && comparisonData) renderComparison(comparisonData);
   else if (currentPage === "explainability" && explainabilityData) renderExplainability(explainabilityData);
-  else if (currentPage === "simulator" && lastSimResult) renderSimShap(lastSimResult);
+  else if (currentPage === "simulator" && lastSimResult) renderSimCharts(lastSimResult);
 }
 
 function applyTheme(theme) {

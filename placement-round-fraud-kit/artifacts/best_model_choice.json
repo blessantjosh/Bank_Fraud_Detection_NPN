@@ -1,0 +1,10 @@
+{
+  "primary_xgboost_variant": "XGBoost + Class Weighting",
+  "reason": "Class-weighted XGBoost measured a higher test PR-AUC (0.5577 vs 0.4677 for SMOTE). With only 86 real minority rows in the training fold, SMOTE's k=5 interpolation likely blurs sharp 0/1 novelty-flag boundaries the tree otherwise splits on cleanly.",
+  "best_model_by_test_pr_auc_overall": "XGBoost + Class Weighting",
+  "test_pr_auc": {
+    "XGBoost + SMOTE": 0.46766096344276364,
+    "XGBoost + Class Weighting": 0.5576702256008699,
+    "Random Forest": 0.43134327416267515
+  }
+}

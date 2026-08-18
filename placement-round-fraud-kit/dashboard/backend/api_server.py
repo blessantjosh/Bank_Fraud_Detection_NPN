@@ -1,32 +1,48 @@
 """
 Argus -- Behavioral Anomaly Intelligence.
 
-FastAPI backend for the fraud-analytics dashboard. Reuses the v1 pipeline's
-artifacts as-is (labeled.csv, anomaly_votes.csv, reference.pkl, xgb_model.json,
-thresholds.json, decision_tree_rules.txt) -- nothing here retrains or
-recomputes the underlying model. On startup it:
+FastAPI backend for the fraud-analytics dashboard, wired to the **research_v2
+pipeline** (the client-designated final pipeline, built on the teammate's
+18-feature matrix). Nothing here retrains or recomputes the pipeline; it loads
+the artifacts that pipeline already produced and serves them.
 
-  1. Rebuilds the raw, sorted transaction table (fe.load_raw + the identical
-     sort fit_engineer used) so raw fields can be joined back onto
-     labeled.csv by row position.
-  2. Scores every transaction with the SMOTE XGBoost model (the primary
-     model per the brief) to get a continuous risk_score per row.
-  3. Computes (and disk-caches) a SHAP TreeExplainer pass over all rows once,
-     so per-transaction explanations are a dict lookup at request time, not
-     a recomputation.
-  4. Reproduces the cost-based threshold sweep from the held-out test split
-     so the Explainability page can show a real curve, not two isolated
-     numbers.
+What it reads, and what each drives:
 
-Everything else (the What-if Simulator, the investigation queue) reuses
-these same in-memory structures.
+  artifacts_research_v2/ensemble_scores_v2.csv
+      `ensemble_percentile_average` -- the Phase 12 (v2) recommended score.
+      This is the dashboard's risk score.
+  artifacts_research_v2/threshold_analysis_v2.json
+      Phase 13 (v2) cutoffs: P99 = 0.951023 -> priority review,
+      P95 = 0.867124 -> standard review, else normal. No block tier exists,
+      by design (Phase 13 v2 SS1: a false-negative count cannot be computed
+      without a label, so a cost-optimal block threshold is not defensible).
+  artifacts_research_v2/model_scores_all.csv
+      Per-row scores and top-5% flags for all 12 models.
+  artifacts_research_v2/shap_isolation_forest_v2.csv, shap_autoencoder_v2.csv
+      Precomputed full-dataset SHAP, served as a lookup -- never recomputed.
+  artifacts_research_v2/internal_validity_metrics_v2.csv,
+  stability_bootstrap_jaccard_v2.csv, ensemble_weights_v2.json,
+  ensemble_pairwise_comparison_v2.csv, model_pairwise_spearman.csv,
+  model_pairwise_jaccard.csv, shap_global_importance_comparison_v2.csv
+      The Model Comparison and Explainability pages. Every number on those
+      pages is read from an artifact at startup, not hardcoded -- so a stale
+      artifact produces a visibly stale dashboard rather than a dashboard
+      that silently disagrees with the pipeline behind it.
+
+  data/bank_transactions_data_2.csv       raw display fields, joined on TransactionID
+  artifacts_research/features_teammate_merged.csv   the 18 engineered features
+
+The Account Scenario Simulator (formerly "What-if") additionally loads the
+Isolation Forest and Autoencoder artifacts to score a hypothetical variation
+of a *real* account's transaction. See SIMULATOR_NOTE below for why it cannot
+be a free-form new-transaction simulator on this feature set.
 """
 import csv
 import io
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Literal, Optional
 
 import joblib
@@ -37,187 +53,289 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from xgboost import XGBClassifier
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 DASHBOARD_DIR = os.path.dirname(BACKEND_DIR)
 PROJECT_ROOT = os.path.dirname(DASHBOARD_DIR)
-SRC_DIR = os.path.join(PROJECT_ROOT, "src")
+SRC_V2_DIR = os.path.join(PROJECT_ROOT, "src_research_v2")
 FRONTEND_DIR = os.path.join(DASHBOARD_DIR, "frontend")
 CACHE_DIR = os.path.join(BACKEND_DIR, "cache")
 QUEUE_STATE_PATH = os.path.join(BACKEND_DIR, "queue_state.json")
 
+DATA_CSV = os.path.join(PROJECT_ROOT, "data", "bank_transactions_data_2.csv")
+FEATURES_CSV = os.path.join(PROJECT_ROOT, "artifacts_research", "features_teammate_merged.csv")
+ART_V2 = os.path.join(PROJECT_ROOT, "artifacts_research_v2")
+MODELS_V2 = os.path.join(ART_V2, "models")
+
 os.makedirs(CACHE_DIR, exist_ok=True)
-sys.path.insert(0, SRC_DIR)
+sys.path.insert(0, SRC_V2_DIR)
 
-import config  # noqa: E402
-import fe_utils as fe  # noqa: E402
-
-import shap  # noqa: E402
+from autoencoder_utils import load_autoencoder, reconstruction_errors  # noqa: E402
+from config_research_v2 import FEATURE_COLS_V2, ID_COLS  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# human-readable labels for the engineered feature names, used in the SHAP
-# breakdown and the global-importance chart so the console doesn't just show
-# raw column identifiers to an analyst.
+# labels
 # ---------------------------------------------------------------------------
 FEATURE_LABELS = {
-    "TransactionAmount": "Transaction amount",
+    "TransactionAmount": "Transaction amount (log-scaled)",
     "CustomerAge": "Customer age",
     "TransactionDuration": "Transaction duration",
     "LoginAttempts": "Login attempts",
     "AccountBalance": "Account balance",
-    "Amount_vs_TypeAvg": "Amount vs. transaction-type average",
-    "DeviceTxnCount": "Device transaction count",
-    "IPTxnCount": "IP address transaction count",
-    "MerchantTxnCount": "Merchant transaction count",
-    "Amount_vs_AccountAvg": "Amount vs. account average",
-    "DeviceNoveltyFlag": "New device for this account",
-    "LocationNoveltyFlag": "New location for this account",
-    "TimeSinceLastTxn": "Time since last transaction",
-    "Location_enc": "Location (encoded)",
+    "account_frequency": "Account activity (global count)",
+    "device_frequency": "Device usage (global count)",
+    "ip_frequency": "IP address usage (global count)",
+    "merchant_frequency": "Merchant usage (global count)",
+    "amount_to_balance_ratio": "Amount-to-balance ratio",
+    "high_amount_transaction": "High-amount flag (top 5% globally)",
     "TransactionType_Debit": "Transaction type: debit",
     "Channel_Branch": "Channel: branch",
     "Channel_Online": "Channel: online",
     "CustomerOccupation_Engineer": "Occupation: engineer",
     "CustomerOccupation_Retired": "Occupation: retired",
     "CustomerOccupation_Student": "Occupation: student",
+    "Location_FE": "Location commonness (frequency-encoded)",
 }
 
-RISK_TIER_MAP = {
-    "High confidence fraud": "high",
-    "Medium confidence / needs review": "medium",
-    "Normal": "normal",
+MODEL_LABELS = {
+    "isolation_forest": "Isolation Forest",
+    "lof": "Local Outlier Factor",
+    "ocsvm": "One-Class SVM",
+    "elliptic_envelope": "Elliptic Envelope (MCD)",
+    "dbscan": "DBSCAN",
+    "hdbscan": "HDBSCAN",
+    "kmeans": "K-Means",
+    "gmm": "Gaussian Mixture Model",
+    "autoencoder": "Autoencoder",
+    "vae": "Variational Autoencoder",
+    "lstm_ae": "LSTM Autoencoder",
+    "hybrid_ensemble": "Hybrid Ensemble (IF+LOF+AE)",
 }
-RISK_TIER_LABELS = {v: k for k, v in RISK_TIER_MAP.items()}
+
+# the 11 models that feed the ensemble (Hybrid Ensemble excluded as an input --
+# it is itself a vote of IF + LOF + AE, Phase 12 v2 SS0)
+ENSEMBLE_MEMBERS = [
+    "isolation_forest", "lof", "ocsvm", "elliptic_envelope", "dbscan",
+    "hdbscan", "kmeans", "gmm", "autoencoder", "vae", "lstm_ae",
+]
+
+TIER_LABELS = {
+    "priority": "Priority review",
+    "standard": "Standard review",
+    "normal": "Normal",
+}
 
 QUEUE_ACTIONS = ("pending", "approved", "escalated", "blocked")
 
-RAW_DISPLAY_COLS = [
-    "TransactionID", "AccountID", "TransactionAmount", "TransactionDate",
-    "TransactionType", "Location", "DeviceID", "IP Address", "MerchantID",
-    "Channel", "CustomerAge", "CustomerOccupation", "TransactionDuration",
-    "LoginAttempts", "AccountBalance",
-]
+SIMULATOR_NOTE = (
+    "Free-form scoring of a brand-new transaction is not meaningful on this feature set. "
+    "Five of the eighteen features (account / device / IP / merchant frequency and location "
+    "frequency-encoding) are population-level statistics computed across the whole dataset -- "
+    "an invented transaction has no device_frequency until you decide what population to count "
+    "over, and inventing one would produce a confident-looking score built on a fabricated input. "
+    "This tool therefore anchors every scenario to a real account and to real devices, IPs, "
+    "merchants and locations that exist in the data, and uses their true historical frequency "
+    "values. You vary only the fields that genuinely belong to a single transaction."
+)
+
+SIMULATOR_SCORE_NOTE = (
+    "Scored by Isolation Forest and the Autoencoder only -- not by the full 11-model ensemble. "
+    "DBSCAN and HDBSCAN have no out-of-sample predict() in this build and cannot score an unseen "
+    "row at all (Phase 12 v2), so presenting a 'full ensemble score' for a hypothetical would be "
+    "a fabrication. The percentiles below are this scenario's position within the 2,512 real "
+    "transactions, and the tier is derived from the two-model reference distribution -- it is NOT "
+    "the deployed 11-model threshold."
+)
+
+# training-derived constants, recovered exactly in Phase 14 (v2) SS5 and verified
+# to reproduce all 2,512 rows of features_teammate_merged.csv. Computed at
+# startup from the raw CSV rather than hardcoded, so they cannot drift silently.
+HIGH_AMOUNT_THRESHOLD_Q = 0.95
 
 
 # ---------------------------------------------------------------------------
-# startup: load artifacts, score every row, cache SHAP, build the ledger
+# startup
 # ---------------------------------------------------------------------------
-def _verdict_for(proba: float, thresholds: dict) -> str:
-    if proba >= thresholds["block_threshold"]:
-        return "block"
-    if proba >= thresholds["review_threshold"]:
-        return "review"
-    return "approve"
+def _tier_for(score: float, priority_cut: float, standard_cut: float) -> str:
+    if score >= priority_cut:
+        return "priority"
+    if score >= standard_cut:
+        return "standard"
+    return "normal"
 
 
-VERDICT_LABELS = {"approve": "Auto-approve", "review": "Manual review", "block": "Block"}
+def _percentile_of(sorted_ref: np.ndarray, value: float) -> float:
+    """Fraction of the reference distribution at or below `value`, in [0, 1]."""
+    return float(np.searchsorted(sorted_ref, value, side="right") / len(sorted_ref))
 
 
 def _load_state():
-    reference = joblib.load(config.REFERENCE_PKL)
-    feature_cols = reference["feature_cols"]
+    raw = pd.read_csv(DATA_CSV)
+    raw["TransactionDate"] = pd.to_datetime(raw["TransactionDate"], format="%d-%m-%Y %H:%M")
 
-    model = XGBClassifier()
-    model.load_model(config.MODEL_JSON)
+    features = pd.read_csv(FEATURES_CSV)
+    ensemble = pd.read_csv(os.path.join(ART_V2, "ensemble_scores_v2.csv"))
+    model_scores = pd.read_csv(os.path.join(ART_V2, "model_scores_all.csv"))
+    shap_if = pd.read_csv(os.path.join(ART_V2, "shap_isolation_forest_v2.csv"))
+    shap_ae = pd.read_csv(os.path.join(ART_V2, "shap_autoencoder_v2.csv"))
 
-    with open(config.THRESHOLDS_JSON) as f:
+    with open(os.path.join(ART_V2, "threshold_analysis_v2.json")) as f:
         thresholds = json.load(f)
 
-    raw = fe.load_raw(config.RAW_CSV)
-    raw_sorted = raw.sort_values(["AccountID", "TransactionDate", "TransactionID"]).reset_index(drop=True)
+    # --- alignment: every artifact must line up row-for-row on TransactionID ---
+    n = len(raw)
+    for name, df in [("features", features), ("ensemble", ensemble), ("model_scores", model_scores),
+                     ("shap_if", shap_if), ("shap_ae", shap_ae)]:
+        if len(df) != n:
+            raise RuntimeError(f"Row-count mismatch: raw={n} {name}={len(df)}")
+        if not (df["TransactionID"].values == raw["TransactionID"].values).all():
+            raise RuntimeError(f"TransactionID alignment check failed for {name}")
 
-    labeled = pd.read_csv(config.LABELED_CSV)
-    votes = pd.read_csv(config.ANOMALY_VOTES_CSV)
+    # --- Phase 13 (v2) cutoffs, read from the artifact, not hardcoded ---
+    pct_rows = {r["method"]: r for r in thresholds["percentile_thresholds"]}
+    priority_cut = float(pct_rows["P99"]["threshold_value"])
+    standard_cut = float(pct_rows["P95"]["threshold_value"])
 
-    if len(raw_sorted) != len(labeled) or len(labeled) != len(votes):
-        raise RuntimeError(
-            f"Row-count mismatch: raw={len(raw_sorted)} labeled={len(labeled)} votes={len(votes)}"
-        )
-    # spot-check the join lines up before trusting it for a single request
-    if not np.isclose(raw_sorted["TransactionAmount"].iloc[0], labeled["TransactionAmount"].iloc[0]):
-        raise RuntimeError("Row alignment check failed: raw_sorted vs labeled TransactionAmount mismatch at row 0")
-    if not (votes["vote_count"] == labeled["vote_count"]).all():
-        raise RuntimeError("Row alignment check failed: anomaly_votes.csv vote_count does not match labeled.csv")
+    score = ensemble["ensemble_percentile_average"].astype(float).values
+    sorted_score = np.sort(score)
 
-    feature_df = labeled[feature_cols].reset_index(drop=True)
-    proba = model.predict_proba(feature_df)[:, 1]
+    flag_cols = [f"flag_{m}" for m in ENSEMBLE_MEMBERS]
+    models_flagged = model_scores[flag_cols].fillna(0).astype(int).sum(axis=1).values
+    lstm_applicable = model_scores["lstm_ae_applicable"].astype(bool).values
 
-    shap_cache_path = os.path.join(CACHE_DIR, "shap_values.npy")
-    if os.path.exists(shap_cache_path):
-        shap_matrix = np.load(shap_cache_path)
-        if shap_matrix.shape != feature_df.shape:
-            shap_matrix = None
-    else:
-        shap_matrix = None
-    explainer = shap.TreeExplainer(model)
-    if shap_matrix is None:
-        shap_matrix = explainer.shap_values(feature_df)
-        if isinstance(shap_matrix, list):
-            shap_matrix = shap_matrix[1]
-        np.save(shap_cache_path, shap_matrix)
+    # per-model percentile of each row's own score, for the drawer
+    member_pct = {}
+    for m in ENSEMBLE_MEMBERS:
+        col = model_scores[f"score_{m}"].astype(float)
+        member_pct[m] = col.rank(pct=True, na_option="keep").values
 
     ledger = pd.DataFrame({
-        "transaction_id": raw_sorted["TransactionID"].astype(str),
-        "account_id": raw_sorted["AccountID"].astype(str),
-        "amount": raw_sorted["TransactionAmount"].astype(float),
-        "date": raw_sorted["TransactionDate"],
-        "txn_type": raw_sorted["TransactionType"].astype(str),
-        "location": raw_sorted["Location"].astype(str),
-        "device_id": raw_sorted["DeviceID"].astype(str),
-        "ip_address": raw_sorted["IP Address"].astype(str),
-        "merchant_id": raw_sorted["MerchantID"].astype(str),
-        "channel": raw_sorted["Channel"].astype(str),
-        "customer_age": raw_sorted["CustomerAge"].astype(int),
-        "customer_occupation": raw_sorted["CustomerOccupation"].astype(str),
-        "duration": raw_sorted["TransactionDuration"].astype(int),
-        "login_attempts": raw_sorted["LoginAttempts"].astype(int),
-        "account_balance": raw_sorted["AccountBalance"].astype(float),
-        "vote_count": labeled["vote_count"].astype(int),
-        "risk_tier_label": labeled["risk_tier"].astype(str),
-        "risk_tier_code": labeled["risk_tier"].map(RISK_TIER_MAP),
-        "is_fraud": labeled["is_fraud"].astype(int),
-        "flag_isoforest": votes["flag_isoforest"].astype(bool),
-        "flag_lof": votes["flag_lof"].astype(bool),
-        "flag_ocsvm": votes["flag_ocsvm"].astype(bool),
-        "flag_mcd": votes["flag_mcd"].astype(bool),
-        "risk_score": proba.astype(float),
+        "transaction_id": raw["TransactionID"].astype(str),
+        "account_id": raw["AccountID"].astype(str),
+        "amount": raw["TransactionAmount"].astype(float),
+        "date": raw["TransactionDate"],
+        "txn_type": raw["TransactionType"].astype(str),
+        "location": raw["Location"].astype(str),
+        "device_id": raw["DeviceID"].astype(str),
+        "ip_address": raw["IP Address"].astype(str),
+        "merchant_id": raw["MerchantID"].astype(str),
+        "channel": raw["Channel"].astype(str),
+        "customer_age": raw["CustomerAge"].astype(int),
+        "customer_occupation": raw["CustomerOccupation"].astype(str),
+        "duration": raw["TransactionDuration"].astype(int),
+        "login_attempts": raw["LoginAttempts"].astype(int),
+        "account_balance": raw["AccountBalance"].astype(float),
+        "risk_score": score,
+        "score_percentile": pd.Series(score).rank(pct=True).values,
+        "models_flagged": models_flagged,
+        "lstm_applicable": lstm_applicable,
+        "weighted_average": ensemble["ensemble_weighted_average"].astype(float).values,
+        "hybrid_votes": model_scores["hybrid_vote_count"].astype(int).values,
     })
-    ledger["verdict_code"] = ledger["risk_score"].apply(lambda p: _verdict_for(p, thresholds))
-    ledger["verdict_label"] = ledger["verdict_code"].map(VERDICT_LABELS)
+    ledger["risk_tier_code"] = [_tier_for(s, priority_cut, standard_cut) for s in score]
+    ledger["risk_tier_label"] = ledger["risk_tier_code"].map(TIER_LABELS)
 
     id_to_row = {tx_id: idx for idx, tx_id in enumerate(ledger["transaction_id"])}
 
-    # ---- cost-based threshold sweep, reproduced from the real held-out split ----
-    split = joblib.load(config.SPLIT_PKL)
-    X_test, y_test = split["X_test"], split["y_test"]
-    test_proba = model.predict_proba(X_test)[:, 1]
-    sweep_thresholds = np.linspace(0.01, 0.99, 99)
-    sweep_costs = []
-    for t in sweep_thresholds:
-        pred = (test_proba >= t).astype(int)
-        fp = int(((pred == 1) & (y_test == 0)).sum())
-        fn = int(((pred == 0) & (y_test == 1)).sum())
-        sweep_costs.append(fp * config.COST_FALSE_POSITIVE + fn * config.COST_FALSE_NEGATIVE)
-    sweep_costs = np.array(sweep_costs)
-    best_idx = int(sweep_costs.argmin())
+    # --- simulator: frozen training constants, recovered exactly (Phase 14 v2 SS5) ---
+    amt = raw["TransactionAmount"].astype(float).values
+    bal = raw["AccountBalance"].astype(float).values
+    log_amt = np.log1p(amt)
+    log_ratio = np.log1p(amt / (bal + 1.0))
+    scaling_stats = {
+        "TransactionAmount": (float(log_amt.mean()), float(log_amt.std(ddof=0))),
+        "amount_to_balance_ratio": (float(log_ratio.mean()), float(log_ratio.std(ddof=0))),
+    }
+    for col in ("CustomerAge", "TransactionDuration", "LoginAttempts", "AccountBalance"):
+        v = raw[col].astype(float).values
+        scaling_stats[col] = (float(v.mean()), float(v.std(ddof=0)))
+    high_amount_threshold = float(np.quantile(amt, HIGH_AMOUNT_THRESHOLD_Q))
+
+    # real population frequency lookups -- never synthesised
+    freq_lookup = {
+        "account": raw.groupby("AccountID").size().to_dict(),
+        "device": raw.groupby("DeviceID").size().to_dict(),
+        "ip": raw.groupby("IP Address").size().to_dict(),
+        "merchant": raw.groupby("MerchantID").size().to_dict(),
+    }
+    for key, col in [("account", "AccountID"), ("device", "DeviceID"),
+                     ("ip", "IP Address"), ("merchant", "MerchantID")]:
+        v = raw[col].map(freq_lookup[key]).astype(float).values
+        scaling_stats[f"{key}_frequency"] = (float(v.mean()), float(v.std(ddof=0)))
+    loc_prop = raw["Location"].value_counts(normalize=True)
+    loc_series = raw["Location"].map(loc_prop).astype(float).values
+    scaling_stats["Location_FE"] = (float(loc_series.mean()), float(loc_series.std(ddof=0)))
+
+    # --- simulator models ---
+    robust_scaler = joblib.load(os.path.join(MODELS_V2, "shared_robust_scaler.pkl"))
+    iforest = joblib.load(os.path.join(MODELS_V2, "isolation_forest.pkl"))
+    ae_scaler = joblib.load(os.path.join(ART_V2, "autoencoder_scaler.pkl"))
+    ae_model = load_autoencoder(os.path.join(ART_V2, "autoencoder.pt"), len(FEATURE_COLS_V2), 3)
+
+    # self-check: the reload path must reproduce the published scores
+    X = features[FEATURE_COLS_V2].astype(float).values
+    if_repro = -iforest.decision_function(robust_scaler.transform(X))
+    if_err = float(np.abs(if_repro - model_scores["score_isolation_forest"].values).max())
+    ae_repro, _, _, _ = reconstruction_errors(ae_model, ae_scaler.transform(X))
+    ae_err = float(np.abs(ae_repro - model_scores["score_autoencoder"].values).max())
+    if if_err > 1e-8 or ae_err > 1e-5:
+        raise RuntimeError(f"Model reload check failed: IF max err {if_err}, AE max err {ae_err}")
+
+    # two-model reference distribution for the simulator's honest tiering
+    if_sorted = np.sort(if_repro)
+    ae_sorted = np.sort(ae_repro)
+    two_model_ref = np.sort(
+        (pd.Series(if_repro).rank(pct=True).values + pd.Series(ae_repro).rank(pct=True).values) / 2.0
+    )
+
+    # --- Model Comparison / Explainability page data, all read from artifacts ---
+    validity = pd.read_csv(os.path.join(ART_V2, "internal_validity_metrics_v2.csv"))
+    stability = pd.read_csv(os.path.join(ART_V2, "stability_bootstrap_jaccard_v2.csv"))
+    pairwise = pd.read_csv(os.path.join(ART_V2, "ensemble_pairwise_comparison_v2.csv"))
+    spearman = pd.read_csv(os.path.join(ART_V2, "model_pairwise_spearman.csv"), index_col=0)
+    jaccard = pd.read_csv(os.path.join(ART_V2, "model_pairwise_jaccard.csv"), index_col=0)
+    shap_global = pd.read_csv(os.path.join(ART_V2, "shap_global_importance_comparison_v2.csv"))
+    with open(os.path.join(ART_V2, "ensemble_weights_v2.json")) as f:
+        weights = json.load(f)
+    with open(os.path.join(ART_V2, "model_comparison_summary.json")) as f:
+        rate_summary = json.load(f)
 
     return {
-        "reference": reference,
-        "feature_cols": feature_cols,
-        "model": model,
-        "explainer": explainer,
-        "thresholds": thresholds,
         "raw": raw,
+        "features": features,
         "ledger": ledger,
-        "feature_df": feature_df,
-        "shap_matrix": shap_matrix,
         "id_to_row": id_to_row,
-        "cost_sweep": {
-            "thresholds": sweep_thresholds.tolist(),
-            "costs": sweep_costs.tolist(),
-            "min_threshold": float(sweep_thresholds[best_idx]),
-            "min_cost": float(sweep_costs[best_idx]),
+        "shap_if": shap_if,
+        "shap_ae": shap_ae,
+        "member_pct": member_pct,
+        "model_scores": model_scores,
+        "thresholds": {
+            "priority": priority_cut,
+            "standard": standard_cut,
+            "analysis": thresholds,
+        },
+        "sorted_score": sorted_score,
+        "validity": validity,
+        "stability": stability,
+        "pairwise": pairwise,
+        "spearman": spearman,
+        "jaccard": jaccard,
+        "shap_global": shap_global,
+        "weights": weights,
+        "rate_summary": rate_summary,
+        "sim": {
+            "scaling_stats": scaling_stats,
+            "high_amount_threshold": high_amount_threshold,
+            "freq_lookup": freq_lookup,
+            "loc_prop": loc_prop.to_dict(),
+            "robust_scaler": robust_scaler,
+            "iforest": iforest,
+            "ae_scaler": ae_scaler,
+            "ae_model": ae_model,
+            "if_sorted": if_sorted,
+            "ae_sorted": ae_sorted,
+            "two_model_ref": two_model_ref,
+            "repro_err": {"isolation_forest": if_err, "autoencoder": ae_err},
         },
     }
 
@@ -239,18 +357,8 @@ def _save_queue_state(state: dict) -> None:
 
 QUEUE_STATE = _load_queue_state()
 
-
-# ---------------------------------------------------------------------------
-# app
-# ---------------------------------------------------------------------------
 app = FastAPI(title="Argus", description="Behavioral Anomaly Intelligence")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 def _row_summary(idx: int) -> dict:
@@ -265,27 +373,23 @@ def _row_summary(idx: int) -> dict:
         "date": row["date"].isoformat(),
         "risk_tier_code": row["risk_tier_code"],
         "risk_tier_label": row["risk_tier_label"],
-        "vote_count": int(row["vote_count"]),
+        "models_flagged": int(row["models_flagged"]),
+        "lstm_applicable": bool(row["lstm_applicable"]),
         "risk_score": round(float(row["risk_score"]), 4),
-        "verdict_code": row["verdict_code"],
-        "verdict_label": row["verdict_label"],
         "queue_action": action,
     }
 
 
 SORT_COLUMNS = {
-    "date": "date",
-    "amount": "amount",
-    "risk_score": "risk_score",
-    "transaction_id": "transaction_id",
-    "vote_count": "vote_count",
+    "date": "date", "amount": "amount", "risk_score": "risk_score",
+    "transaction_id": "transaction_id", "models_flagged": "models_flagged",
 }
 
 
 @app.get("/api/transactions")
 def list_transactions(
     q: Optional[str] = None,
-    risk_tier: Optional[str] = Query(None, description="high | medium | normal"),
+    risk_tier: Optional[str] = Query(None, description="priority | standard | normal"),
     channel: Optional[str] = None,
     txn_type: Optional[str] = None,
     amount_min: Optional[float] = None,
@@ -332,11 +436,24 @@ def list_transactions(
     page_indices = filtered.index[start:start + page_size]
 
     return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
+        "total": total, "page": page, "page_size": page_size,
         "results": [_row_summary(i) for i in page_indices],
     }
+
+
+def _shap_breakdown(frame: pd.DataFrame, idx: int, feature_row: pd.Series) -> List[dict]:
+    row = frame.iloc[idx]
+    out = [
+        {
+            "feature": col,
+            "label": FEATURE_LABELS.get(col, col),
+            "feature_value": round(float(feature_row[col]), 4),
+            "shap_value": round(float(row[col]), 5),
+        }
+        for col in FEATURE_COLS_V2
+    ]
+    out.sort(key=lambda d: abs(d["shap_value"]), reverse=True)
+    return out
 
 
 @app.get("/api/transactions/{transaction_id}")
@@ -346,22 +463,22 @@ def transaction_detail(transaction_id: str):
         raise HTTPException(status_code=404, detail=f"Transaction {transaction_id} not found")
 
     row = STATE["ledger"].iloc[idx]
-    feature_row = STATE["feature_df"].iloc[idx]
-    shap_row = STATE["shap_matrix"][idx]
+    feature_row = STATE["features"].iloc[idx]
+    ms = STATE["model_scores"].iloc[idx]
 
-    shap_breakdown = sorted(
-        (
-            {
-                "feature": col,
-                "label": FEATURE_LABELS.get(col, col),
-                "feature_value": round(float(feature_row[col]), 4),
-                "shap_value": round(float(shap_row[i]), 5),
-            }
-            for i, col in enumerate(STATE["feature_cols"])
-        ),
-        key=lambda d: abs(d["shap_value"]),
-        reverse=True,
-    )
+    members = []
+    for m in ENSEMBLE_MEMBERS:
+        pct = STATE["member_pct"][m][idx]
+        raw_score = ms[f"score_{m}"]
+        flagged = ms[f"flag_{m}"]
+        members.append({
+            "model": m,
+            "label": MODEL_LABELS[m],
+            "percentile": None if pd.isna(pct) else round(float(pct), 4),
+            "score": None if pd.isna(raw_score) else round(float(raw_score), 5),
+            "flagged": None if pd.isna(flagged) else bool(flagged),
+            "applicable": not pd.isna(pct),
+        })
 
     action_entry = QUEUE_STATE.get(transaction_id, {})
 
@@ -382,24 +499,24 @@ def transaction_detail(transaction_id: str):
             "duration_seconds": int(row["duration"]),
             "login_attempts": int(row["login_attempts"]),
             "account_balance": round(float(row["account_balance"]), 2),
+            "amount_to_balance_ratio": round(float(row["amount"]) / max(float(row["account_balance"]), 0.01), 3),
         },
         "risk": {
             "risk_tier_code": row["risk_tier_code"],
             "risk_tier_label": row["risk_tier_label"],
-            "vote_count": int(row["vote_count"]),
             "risk_score": round(float(row["risk_score"]), 4),
-            "verdict_code": row["verdict_code"],
-            "verdict_label": row["verdict_label"],
-            "review_threshold": STATE["thresholds"]["review_threshold"],
-            "block_threshold": STATE["thresholds"]["block_threshold"],
+            "score_percentile": round(float(row["score_percentile"]), 4),
+            "score_rank": int((STATE["ledger"]["risk_score"] > row["risk_score"]).sum()) + 1,
+            "models_flagged": int(row["models_flagged"]),
+            "models_applicable": int(sum(1 for m in members if m["applicable"])),
+            "hybrid_votes": int(row["hybrid_votes"]),
+            "weighted_average": round(float(row["weighted_average"]), 4),
+            "priority_threshold": round(STATE["thresholds"]["priority"], 4),
+            "standard_threshold": round(STATE["thresholds"]["standard"], 4),
         },
-        "detectors": {
-            "isoforest": bool(row["flag_isoforest"]),
-            "lof": bool(row["flag_lof"]),
-            "ocsvm": bool(row["flag_ocsvm"]),
-            "mcd": bool(row["flag_mcd"]),
-        },
-        "shap": shap_breakdown,
+        "models": members,
+        "shap_isolation_forest": _shap_breakdown(STATE["shap_if"], idx, feature_row),
+        "shap_autoencoder": _shap_breakdown(STATE["shap_ae"], idx, feature_row),
         "queue_action": action_entry.get("action", "pending"),
         "queue_updated_at": action_entry.get("updated_at"),
     }
@@ -410,36 +527,34 @@ def kpis():
     ledger = STATE["ledger"]
     total = len(ledger)
     tier_counts = ledger["risk_tier_code"].value_counts()
-    vote_counts = ledger["vote_count"].value_counts().sort_index()
+    agree_counts = ledger["models_flagged"].value_counts().sort_index()
 
     daily = (
         ledger.assign(day=ledger["date"].dt.date)
-        .groupby("day")
-        .size()
-        .reset_index(name="count")
-        .sort_values("day")
+        .groupby("day").size().reset_index(name="count").sort_values("day")
     )
-
     top_risk = ledger.sort_values("risk_score", ascending=False).index[:10]
 
-    high = int(tier_counts.get("high", 0))
-    medium = int(tier_counts.get("medium", 0))
+    priority = int(tier_counts.get("priority", 0))
+    standard = int(tier_counts.get("standard", 0))
     normal = int(tier_counts.get("normal", 0))
 
     return {
         "total_transactions": total,
-        "high_risk_count": high,
-        "review_count": medium,
+        "priority_count": priority,
+        "standard_count": standard,
         "normal_count": normal,
-        "flag_rate": round((high + medium) / total, 4),
+        "flag_rate": round((priority + standard) / total, 4),
         "avg_amount": round(float(ledger["amount"].mean()), 2),
+        "priority_threshold": round(STATE["thresholds"]["priority"], 4),
+        "standard_threshold": round(STATE["thresholds"]["standard"], 4),
         "tier_distribution": [
-            {"tier": "High", "code": "high", "count": high},
-            {"tier": "Medium", "code": "medium", "count": medium},
+            {"tier": "Priority", "code": "priority", "count": priority},
+            {"tier": "Standard", "code": "standard", "count": standard},
             {"tier": "Normal", "code": "normal", "count": normal},
         ],
-        "vote_distribution": [
-            {"votes": int(v), "count": int(c)} for v, c in vote_counts.items()
+        "model_agreement_distribution": [
+            {"models": int(v), "count": int(c)} for v, c in agree_counts.items()
         ],
         "timeseries": [
             {"date": str(d), "count": int(c)} for d, c in zip(daily["day"], daily["count"])
@@ -449,11 +564,7 @@ def kpis():
 
 
 @app.get("/api/queue")
-def investigation_queue(
-    status: Optional[str] = None,
-    page: int = 1,
-    page_size: int = 25,
-):
+def investigation_queue(status: Optional[str] = None, page: int = 1, page_size: int = 25):
     ledger = STATE["ledger"].sort_values("risk_score", ascending=False)
     if status:
         actions = ledger["transaction_id"].map(lambda tid: QUEUE_STATE.get(tid, {}).get("action", "pending"))
@@ -465,9 +576,7 @@ def investigation_queue(
     start = (page - 1) * page_size
     page_indices = ledger.index[start:start + page_size]
     return {
-        "total": total,
-        "page": page,
-        "page_size": page_size,
+        "total": total, "page": page, "page_size": page_size,
         "results": [_row_summary(i) for i in page_indices],
     }
 
@@ -481,13 +590,12 @@ class QueueActionRequest(BaseModel):
 def queue_action(body: QueueActionRequest):
     if body.transaction_id not in STATE["id_to_row"]:
         raise HTTPException(status_code=404, detail=f"Transaction {body.transaction_id} not found")
-
     if body.action == "pending":
         QUEUE_STATE.pop(body.transaction_id, None)
     else:
         QUEUE_STATE[body.transaction_id] = {
             "action": body.action,
-            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
     _save_queue_state(QUEUE_STATE)
     return {"status": "ok", "transaction_id": body.transaction_id, "action": body.action}
@@ -500,224 +608,456 @@ def export_queue():
     writer = csv.writer(buf)
     writer.writerow([
         "transaction_id", "account_id", "amount", "channel", "txn_type", "date",
-        "risk_tier", "vote_count", "risk_score", "verdict", "queue_action",
+        "risk_tier", "ensemble_percentile_average", "models_flagged_of_11", "queue_action",
     ])
     for idx in ledger.index:
         r = STATE["ledger"].iloc[idx]
         action = QUEUE_STATE.get(r["transaction_id"], {}).get("action", "pending")
         writer.writerow([
             r["transaction_id"], r["account_id"], r["amount"], r["channel"], r["txn_type"],
-            r["date"].isoformat(), r["risk_tier_label"], r["vote_count"],
-            round(float(r["risk_score"]), 4), r["verdict_label"], action,
+            r["date"].isoformat(), r["risk_tier_label"], round(float(r["risk_score"]), 4),
+            int(r["models_flagged"]), action,
         ])
     buf.seek(0)
     return StreamingResponse(
-        iter([buf.getvalue()]),
-        media_type="text/csv",
+        iter([buf.getvalue()]), media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=investigation_queue.csv"},
     )
 
 
 # ---------------------------------------------------------------------------
-# model comparison -- real, measured numbers from the v1 pipeline, hardcoded
-# here per the brief rather than recomputed (the training run that produced
-# them is not reproduced by this dashboard).
+# model comparison -- every number read from an artifact at startup
 # ---------------------------------------------------------------------------
-MODEL_COMPARISON = {
-    "detectors": [
-        {"name": "Isolation Forest", "series": "series-1-blue", "flagged": 126, "rate": 0.0502},
-        {"name": "Local Outlier Factor", "series": "series-2-orange", "flagged": 126, "rate": 0.0502},
-        {"name": "One-Class SVM", "series": "series-3-aqua", "flagged": 120, "rate": 0.0478},
-        {"name": "Elliptic Envelope (MCD)", "series": "series-4-yellow", "flagged": 126, "rate": 0.0502},
-    ],
-    "vote_distribution": [
-        {"votes": 0, "count": 2230}, {"votes": 1, "count": 146}, {"votes": 2, "count": 79},
-        {"votes": 3, "count": 34}, {"votes": 4, "count": 23},
-    ],
-    "confidence_tiers": [
-        {"tier": "High (3-4 votes)", "code": "high", "count": 57},
-        {"tier": "Medium (2 votes)", "code": "medium", "count": 79},
-        {"tier": "Normal (0-1 votes)", "code": "normal", "count": 2376},
-    ],
-    "fraud_prevalence": {"count": 136, "total": 2512, "rate": 0.0541},
-    "xgboost_variants": [
-        {"name": "SMOTE-trained (primary)", "roc_auc": 0.9428, "pr_auc": 0.5934, "is_primary": True},
-        {"name": "Class-weighted", "roc_auc": 0.9532, "pr_auc": 0.7398, "is_primary": False},
-    ],
-    "primary_model_note": (
-        "Class-weighting measures marginally better on this held-out split, but SMOTE ships as the "
-        "primary model per the brief's requirement. Reporting both honestly rather than only showing "
-        "the stronger number."
-    ),
-    "confusion_matrix": {
-        "threshold": 0.5, "n": 503,
-        "tn": 457, "fp": 19, "fn": 12, "tp": 15,
-        "precision": 0.441, "recall": 0.556, "f1": 0.492, "roc_auc": 0.943, "pr_auc": 0.593,
-    },
-    "accuracy_contrast": {
-        "naive_accuracy": 0.9463,
-        "model_accuracy": 0.9384,
-        "explanation": (
-            "A model that predicts \"normal\" for every transaction scores 94.63% accuracy while "
-            "catching zero fraud. The real model's accuracy (93.84%) is lower -- not because it is "
-            "worse, but because it spends correctness budget catching the fraud cases the naive "
-            "baseline ignores entirely. Accuracy alone is the wrong scoreboard for a 5%-prevalence "
-            "problem; precision, recall and PR-AUC are what matter here."
-        ),
-    },
-}
-
-
 @app.get("/api/model-comparison")
 def model_comparison():
-    return MODEL_COMPARISON
+    validity = STATE["validity"].set_index("model")
+    weights = STATE["weights"]["weights"]
+    disagreements = STATE["weights"]["disagreements"]
+    sp, jc = STATE["spearman"], STATE["jaccard"]
+    rates = STATE["rate_summary"]["anomaly_rates_pct"]
 
+    models = []
+    for m in list(ENSEMBLE_MEMBERS) + ["hybrid_ensemble"]:
+        v = validity.loc[m] if m in validity.index else None
+        # self-excluded pairwise means (Phase 14 v2 SS5, Inconsistency 1)
+        sp_mean = float((sp.loc[m].sum() - 1.0) / (len(sp) - 1)) if m in sp.index else None
+        jc_mean = float((jc.loc[m].sum() - 1.0) / (len(jc) - 1)) if m in jc.index else None
+        models.append({
+            "model": m,
+            "label": MODEL_LABELS[m],
+            "flagged_rate_pct": rates.get(m),
+            "n_flagged_top5pct": None if v is None else int(v["n_flagged_top5pct"]),
+            "n_rows_used": None if v is None else int(v["n_rows_used"]),
+            "silhouette": None if v is None else round(float(v["silhouette"]), 4),
+            "davies_bouldin": None if v is None else round(float(v["davies_bouldin"]), 4),
+            "calinski_harabasz": None if v is None else round(float(v["calinski_harabasz"]), 2),
+            "mean_spearman": None if sp_mean is None else round(sp_mean, 4),
+            "mean_jaccard": None if jc_mean is None else round(jc_mean, 4),
+            "ensemble_weight": None if m not in weights else round(weights[m], 4),
+            "disagreement": None if m not in disagreements else round(disagreements[m], 4),
+            "in_ensemble": m in ENSEMBLE_MEMBERS,
+        })
+    models.sort(key=lambda d: (d["silhouette"] is None, -(d["silhouette"] or 0)))
 
-# ---------------------------------------------------------------------------
-# explainability
-# ---------------------------------------------------------------------------
-GLOBAL_SHAP_IMPORTANCE = [
-    {"feature": "Amount_vs_AccountAvg", "label": FEATURE_LABELS["Amount_vs_AccountAvg"], "mean_abs_shap": 0.944},
-    {"feature": "Channel_Branch", "label": FEATURE_LABELS["Channel_Branch"], "mean_abs_shap": 0.696},
-    {"feature": "LoginAttempts", "label": FEATURE_LABELS["LoginAttempts"], "mean_abs_shap": 0.679},
-    {"feature": "LocationNoveltyFlag", "label": FEATURE_LABELS["LocationNoveltyFlag"], "mean_abs_shap": 0.626},
-    {"feature": "Channel_Online", "label": FEATURE_LABELS["Channel_Online"], "mean_abs_shap": 0.603},
-    {"feature": "CustomerOccupation_Retired", "label": FEATURE_LABELS["CustomerOccupation_Retired"], "mean_abs_shap": 0.408},
-    {"feature": "DeviceNoveltyFlag", "label": FEATURE_LABELS["DeviceNoveltyFlag"], "mean_abs_shap": 0.354},
-    {"feature": "TransactionAmount", "label": FEATURE_LABELS["TransactionAmount"], "mean_abs_shap": 0.322},
-    {"feature": "TimeSinceLastTxn", "label": FEATURE_LABELS["TimeSinceLastTxn"], "mean_abs_shap": 0.260},
-    {"feature": "MerchantTxnCount", "label": FEATURE_LABELS["MerchantTxnCount"], "mean_abs_shap": 0.253},
-]
+    stability = [
+        {
+            "model": r["model"], "label": MODEL_LABELS[r["model"]],
+            "n_runs": int(r["n_bootstrap_runs"]),
+            "mean_jaccard": round(float(r["mean_pairwise_jaccard_top5pct"]), 4),
+            "min_jaccard": round(float(r["min_pairwise_jaccard"]), 4),
+            "max_jaccard": round(float(r["max_pairwise_jaccard"]), 4),
+        }
+        for _, r in STATE["stability"].iterrows()
+    ]
 
+    pw = STATE["pairwise"]
+    strategy_pairs = [
+        {
+            "pair": str(r["strategy_pair"]),
+            "spearman": round(float(r["spearman"]), 4),
+            "jaccard": round(float(r["jaccard_top5pct"]), 4),
+        }
+        for _, r in pw.iterrows()
+    ]
 
-def _parse_decision_tree_rules(path: str) -> List[dict]:
-    with open(path) as f:
-        lines = [ln.rstrip("\n") for ln in f if ln.strip()]
-
-    stack = []
-    rules = []
-    for line in lines:
-        marker_idx = line.index("|---")
-        depth = len(line[:marker_idx]) // 4
-        content = " ".join(line[marker_idx + 4:].strip().split())
-
-        if content.startswith("class:"):
-            outcome_code = content.split(":", 1)[1].strip()
-            outcome = "Fraud (flagged)" if outcome_code == "1" else "Normal (clear)"
-            conditions = [c for _, c in stack[:depth]]
-            rules.append({"conditions": conditions, "outcome": outcome, "outcome_code": outcome_code})
-        else:
-            stack = stack[:depth]
-            pretty = content.replace("<=", "≤").replace(">", ">")
-            stack.append((depth, pretty))
-    return rules
-
-
-@app.get("/api/explainability")
-def explainability():
-    rules = _parse_decision_tree_rules(config.DT_RULES_TXT)
-    sweep = STATE["cost_sweep"]
-    cost_at_05_idx = int(np.argmin(np.abs(np.array(sweep["thresholds"]) - 0.5)))
     return {
-        "global_shap_importance": GLOBAL_SHAP_IMPORTANCE,
-        "decision_tree_rules": rules,
-        "cost_sweep": {
-            "points": [
-                {"threshold": round(t, 2), "cost": c}
-                for t, c in zip(sweep["thresholds"], sweep["costs"])
-            ],
-            "min_threshold": round(sweep["min_threshold"], 2),
-            "min_cost": sweep["min_cost"],
-            "default_threshold": 0.5,
-            "default_cost": sweep["costs"][cost_at_05_idx],
-            "cost_false_positive": config.COST_FALSE_POSITIVE,
-            "cost_false_negative": config.COST_FALSE_NEGATIVE,
+        "models": models,
+        "stability": stability,
+        "strategy_pairs": strategy_pairs,
+        "pc1_explained_variance": STATE["weights"]["pca_explained_variance_ratio_pc1"],
+        "recommended_strategy": "Percentile Aggregation",
+        "notes": {
+            "leaderboard": (
+                "This is not a leaderboard. Eight of the twelve models cluster at 4.5%-5.7% flagged "
+                "because they either take a contamination~0.05 parameter or use the standardised "
+                "top-5% convention -- the rate carries little information, the agreement on which "
+                "rows carries all of it. Silhouette also structurally favours distance-based "
+                "methods: a top-5%-by-distance cut is close to guaranteed to separate well in a "
+                "distance metric, which is why the reconstruction-error models sit lowest."
+            ),
+            "elliptic_envelope": (
+                "Elliptic Envelope leads on internal validity (Silhouette 0.5409, Calinski-Harabasz "
+                "592.5, more than 3x the next model) and its core assumption is measurably false: "
+                "Shapiro-Wilk rejects normality on 100% of the 18 scaled features. It also has the "
+                "lowest flagged-set overlap of any model. Retained for comparison; not recommended "
+                "as a primary detector."
+            ),
+            "stability": (
+                "Measured by refitting on 5 bootstrap resamples of the training split. Isolation "
+                "Forest is the most retrain-stable model here (0.6021) and the Autoencoder the "
+                "least (0.3726, min 0.2115) -- an inversion of the in-house 46-feature pipeline, "
+                "where LOF led at 0.590 inside a much narrower 0.527-0.590 spread. A retrain "
+                "changes 40-63% of the flagged set with no drift and no new data."
+            ),
+            "agreement": (
+                "Mean Spearman / Jaccard here are self-excluded pairwise means. The Phase 8 (v2) "
+                "report published figures that include each model's own self-correlation of 1.0 in "
+                "a 12-way average, inflating every value by the same monotone transform (logged as "
+                "Inconsistency 1 in Phase 14 v2). Rankings are unaffected; these are the corrected "
+                "absolute values."
+            ),
+            "dbscan": (
+                "DBSCAN has the lowest agreement with the rest of the field by a wide margin and "
+                "the lowest ensemble weight. The in-house 46-feature pipeline reached the same "
+                "conclusion independently, which makes this a property of DBSCAN's behaviour on "
+                "this raw data rather than an artifact of either feature-engineering choice."
+            ),
+            "hybrid": (
+                "The Hybrid Ensemble is excluded as an ensemble input -- it is itself a >=2-of-3 "
+                "vote of Isolation Forest, LOF and the Autoencoder, so folding it back in would "
+                "double-count those three. Its native flag is 83 rows (3.30%); the 269-row "
+                "partition its internal-validity metrics were computed on is the >=1-vote set."
+            ),
+            "strategies": (
+                "Rank (Borda) and Percentile aggregation are near-mathematically identical "
+                "(rho=0.9999) -- summing ranks and averaging rank/N differ only by a per-model "
+                "normalisation constant. Percentile aggregation is recommended: bounded in (0,1) "
+                "so thresholds are comparable across batches, no tuned weights to defend, and it "
+                "skips missing models and renormalises rather than imputing."
+            ),
         },
     }
 
 
 # ---------------------------------------------------------------------------
-# what-if simulator
+# explainability
+# ---------------------------------------------------------------------------
+@app.get("/api/explainability")
+def explainability():
+    g = STATE["shap_global"]
+    if_top = g.sort_values("rank_isolation_forest").head(10)
+    ae_top = g.sort_values("rank_autoencoder").head(10)
+    overlap = sorted(set(if_top["feature"]) & set(ae_top["feature"]))
+
+    rho = float(
+        pd.Series(g["mean_abs_shap_isolation_forest"]).rank()
+        .corr(pd.Series(g["mean_abs_shap_autoencoder"]).rank())
+    )
+
+    analysis = STATE["thresholds"]["analysis"]
+    score = STATE["ledger"]["risk_score"].values
+    counts, edges = np.histogram(score, bins=40)
+
+    return {
+        "global_shap": {
+            "isolation_forest": [
+                {"feature": r["feature"], "label": FEATURE_LABELS.get(r["feature"], r["feature"]),
+                 "mean_abs_shap": round(float(r["mean_abs_shap_isolation_forest"]), 4)}
+                for _, r in if_top.iterrows()
+            ],
+            "autoencoder": [
+                {"feature": r["feature"], "label": FEATURE_LABELS.get(r["feature"], r["feature"]),
+                 "mean_abs_shap": round(float(r["mean_abs_shap_autoencoder"]), 4)}
+                for _, r in ae_top.iterrows()
+            ],
+        },
+        "divergence": {
+            "spearman_rho": round(rho, 4),
+            "top10_overlap": len(overlap),
+            "overlap_features": [FEATURE_LABELS.get(f, f) for f in overlap],
+            "explanation": (
+                "Isolation Forest and the Autoencoder attribute their scores almost entirely "
+                "differently. Isolation Forest scores by how few random splits isolate a point, so "
+                "low-cardinality one-hots -- which isolate a whole minority class in a single split "
+                "-- dominate its attributions. The Autoencoder scores by squared reconstruction "
+                "error through a 3-unit bottleneck, dominated here by the frequency-encoded "
+                "features. On this feature set the Autoencoder should be read as 'is this "
+                "transaction's popularity profile unusual', NOT 'is this amount unusual for this "
+                "account' -- the personal-baseline features that reading would need are absent. "
+                "This divergence is the direct evidence-based reason the recommendation is an "
+                "ensemble with both explanations shown side by side, rather than the single "
+                "highest-ranked model."
+            ),
+            "worked_examples": [
+                {"transaction_id": "TX000275",
+                 "note": "Highest-scoring transaction in the dataset and the clearest fraud-signature "
+                         "match. Both models agree: Isolation Forest attributes +1.714 to login "
+                         "attempts and +1.607 to the amount-to-balance ratio; the Autoencoder "
+                         "attributes +1.570 to the amount-to-balance ratio. The in-house 46-feature "
+                         "pipeline independently flagged the same transaction in its own top 1%."},
+                {"transaction_id": "TX000615",
+                 "note": "The two models disagree on which aspect of the same transaction is "
+                         "anomalous -- Isolation Forest reads it as an amount anomaly, the "
+                         "Autoencoder primarily as a location-frequency anomaly."},
+                {"transaction_id": "TX001029",
+                 "note": "Both models agree the oddity is an extreme merchant-frequency value "
+                         "(z=3.67), not an unusual amount or login pattern. A $516.47 transaction "
+                         "at 0.40x its account's balance with normal login behaviour -- a high score "
+                         "that is not a fraud-relevant anomaly. This is exactly the class of flag a "
+                         "second, structurally different model is there to catch."},
+            ],
+        },
+        "score_distribution": analysis["score_distribution"],
+        "score_histogram": [
+            {"x": round(float((edges[i] + edges[i + 1]) / 2), 4), "count": int(counts[i])}
+            for i in range(len(counts))
+        ],
+        "percentile_thresholds": [
+            {
+                "method": r["method"], "threshold": round(float(r["threshold_value"]), 4),
+                "n_flagged": int(r["n_flagged"]), "pct_flagged": float(r["pct_flagged"]),
+                "review_cost_ceiling": float(r["illustrative_upper_bound_review_cost_usd_if_all_fp"]),
+                "per_day": float(r["flagged_per_day_this_sample"]),
+            }
+            for r in analysis["percentile_thresholds"]
+        ],
+        "statistical_thresholds": [
+            {"method": r["method"], "score": r["score"], "threshold": round(float(r["threshold_value"]), 4),
+             "n_flagged": int(r["n_flagged"])}
+            for r in (analysis["statistical_thresholds_on_recommended_score"]
+                      + analysis["statistical_thresholds_context_unbounded_scores"])
+        ],
+        "statistical_finding": analysis["statistical_threshold_finding"],
+        "cost_note": (
+            "A cost-optimal threshold sweep cannot be reproduced on this pipeline: counting false "
+            "negatives requires knowing which UNFLAGGED transactions are fraud, which is unknowable "
+            "without a label. The costs below are an upper bound on review labour assuming every "
+            "flagged transaction is a false positive, at v1's illustrative $5/review figure. That "
+            "is a ceiling, not an estimate -- and it is why no automatic block tier is recommended."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Account Scenario Simulator (formerly "What-if")
 # ---------------------------------------------------------------------------
 @app.get("/api/simulator/options")
 def simulator_options():
     raw = STATE["raw"]
     return {
-        "accounts": sorted(STATE["reference"]["account_history"].keys()),
+        "accounts": sorted(raw["AccountID"].unique().tolist()),
         "devices": sorted(raw["DeviceID"].unique().tolist()),
-        "locations": sorted(raw["Location"].unique().tolist()),
+        "ip_addresses": sorted(raw["IP Address"].unique().tolist()),
         "merchants": sorted(raw["MerchantID"].unique().tolist()),
+        "locations": sorted(raw["Location"].unique().tolist()),
         "occupations": sorted(raw["CustomerOccupation"].unique().tolist()),
         "channels": ["ATM", "Online", "Branch"],
         "txn_types": ["Debit", "Credit"],
+        "high_amount_threshold": round(STATE["sim"]["high_amount_threshold"], 2),
+        "note": SIMULATOR_NOTE,
+        "score_note": SIMULATOR_SCORE_NOTE,
     }
 
 
-class ScoreRequest(BaseModel):
-    account_id: Optional[str] = Field(None, description="Leave blank to simulate a brand-new account")
+@app.get("/api/simulator/account/{account_id}")
+def simulator_account(account_id: str):
+    raw = STATE["raw"]
+    rows = raw[raw["AccountID"] == account_id]
+    if rows.empty:
+        raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+    last = rows.sort_values("TransactionDate").iloc[-1]
+    freq = STATE["sim"]["freq_lookup"]
+    return {
+        "account_id": account_id,
+        "n_transactions": int(len(rows)),
+        "account_frequency": int(freq["account"][account_id]),
+        "defaults": {
+            "amount": round(float(last["TransactionAmount"]), 2),
+            "account_balance": round(float(last["AccountBalance"]), 2),
+            "customer_age": int(last["CustomerAge"]),
+            "customer_occupation": str(last["CustomerOccupation"]),
+            "channel": str(last["Channel"]),
+            "txn_type": str(last["TransactionType"]),
+            "location": str(last["Location"]),
+            "device_id": str(last["DeviceID"]),
+            "ip_address": str(last["IP Address"]),
+            "merchant_id": str(last["MerchantID"]),
+            "duration_seconds": int(last["TransactionDuration"]),
+            "login_attempts": int(last["LoginAttempts"]),
+        },
+        "history": [
+            {
+                "transaction_id": str(r["TransactionID"]),
+                "date": r["TransactionDate"].isoformat(),
+                "amount": round(float(r["TransactionAmount"]), 2),
+                "balance": round(float(r["AccountBalance"]), 2),
+                "channel": str(r["Channel"]),
+                "login_attempts": int(r["LoginAttempts"]),
+            }
+            for _, r in rows.sort_values("TransactionDate").iterrows()
+        ],
+    }
+
+
+class ScenarioRequest(BaseModel):
+    account_id: str = Field(..., description="Must be an existing AccountID")
     amount: float = Field(..., gt=0)
+    account_balance: float = Field(..., ge=0)
     txn_type: str
+    channel: str
     location: str
     device_id: str
-    ip_address: str = "10.0.0.1"
+    ip_address: str
     merchant_id: str
-    channel: str
-    customer_age: int = Field(..., ge=18, le=120)
     customer_occupation: str
+    customer_age: int = Field(..., ge=18, le=120)
     duration_seconds: int = Field(..., ge=1)
     login_attempts: int = Field(..., ge=1)
-    account_balance: float = Field(..., ge=0)
+
+
+def _z(name: str, value: float) -> float:
+    mean, std = STATE["sim"]["scaling_stats"][name]
+    return (value - mean) / std
 
 
 @app.post("/api/score")
-def score_transaction(body: ScoreRequest):
-    txn = {
-        "AccountID": body.account_id or None,
-        "TransactionAmount": body.amount,
-        "TransactionType": body.txn_type,
-        "Location": body.location,
-        "DeviceID": body.device_id,
-        "IP Address": body.ip_address,
-        "MerchantID": body.merchant_id,
-        "Channel": body.channel,
-        "CustomerAge": body.customer_age,
-        "CustomerOccupation": body.customer_occupation,
-        "TransactionDuration": body.duration_seconds,
-        "LoginAttempts": body.login_attempts,
-        "AccountBalance": body.account_balance,
-        "TransactionDate": datetime.now(),
+def score_scenario(body: ScenarioRequest):
+    sim = STATE["sim"]
+    freq = sim["freq_lookup"]
+
+    if body.account_id not in freq["account"]:
+        raise HTTPException(status_code=404, detail=f"Account {body.account_id} not found in the dataset")
+    for label, key, value in [("Device", "device", body.device_id), ("IP address", "ip", body.ip_address),
+                              ("Merchant", "merchant", body.merchant_id)]:
+        if value not in freq[key]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{label} '{value}' does not exist in the dataset, so it has no real frequency "
+                       f"value. Pick one that does -- inventing a frequency would fabricate the input.",
+            )
+    if body.location not in sim["loc_prop"]:
+        raise HTTPException(status_code=400, detail=f"Location '{body.location}' does not exist in the dataset.")
+
+    ratio_raw = body.amount / (body.account_balance + 1.0)
+    values = {
+        "TransactionAmount": _z("TransactionAmount", float(np.log1p(body.amount))),
+        "CustomerAge": _z("CustomerAge", body.customer_age),
+        "TransactionDuration": _z("TransactionDuration", body.duration_seconds),
+        "LoginAttempts": _z("LoginAttempts", body.login_attempts),
+        "AccountBalance": _z("AccountBalance", body.account_balance),
+        "account_frequency": _z("account_frequency", freq["account"][body.account_id]),
+        "device_frequency": _z("device_frequency", freq["device"][body.device_id]),
+        "ip_frequency": _z("ip_frequency", freq["ip"][body.ip_address]),
+        "merchant_frequency": _z("merchant_frequency", freq["merchant"][body.merchant_id]),
+        "amount_to_balance_ratio": _z("amount_to_balance_ratio", float(np.log1p(ratio_raw))),
+        "high_amount_transaction": 1.0 if body.amount > sim["high_amount_threshold"] else 0.0,
+        "TransactionType_Debit": 1.0 if body.txn_type == "Debit" else 0.0,
+        "Channel_Branch": 1.0 if body.channel == "Branch" else 0.0,
+        "Channel_Online": 1.0 if body.channel == "Online" else 0.0,
+        "CustomerOccupation_Engineer": 1.0 if body.customer_occupation == "Engineer" else 0.0,
+        "CustomerOccupation_Retired": 1.0 if body.customer_occupation == "Retired" else 0.0,
+        "CustomerOccupation_Student": 1.0 if body.customer_occupation == "Student" else 0.0,
+        "Location_FE": _z("Location_FE", sim["loc_prop"][body.location]),
     }
+    x = np.array([[values[c] for c in FEATURE_COLS_V2]], dtype=float)
 
-    row = fe.transform_new(txn, STATE["reference"])
-    proba = float(STATE["model"].predict_proba(row)[:, 1][0])
-    verdict_code = _verdict_for(proba, STATE["thresholds"])
+    if_score = float(-sim["iforest"].decision_function(sim["robust_scaler"].transform(x))[0])
+    ae_mse, _, _, ae_recon = reconstruction_errors(sim["ae_model"], sim["ae_scaler"].transform(x))
+    ae_score = float(ae_mse[0])
 
-    shap_values = STATE["explainer"](row)
-    contributions = sorted(
+    if_pct = _percentile_of(sim["if_sorted"], if_score)
+    ae_pct = _percentile_of(sim["ae_sorted"], ae_score)
+    two_model = (if_pct + ae_pct) / 2.0
+    ref = sim["two_model_ref"]
+    two_model_pct = _percentile_of(ref, two_model)
+    tier = ("priority" if two_model_pct >= 0.99 else "standard" if two_model_pct >= 0.95 else "normal")
+
+    # Isolation Forest: exact per-feature attribution, computed live (TreeExplainer
+    # is exact for this model and takes milliseconds on one row). Sign-flipped to
+    # match this project's "higher = more anomalous" convention, the same
+    # verification Phase 11 (v2) performed.
+    import shap  # imported lazily -- only the simulator needs it
+    explainer = shap.TreeExplainer(sim["iforest"])
+    raw_shap = np.array(explainer.shap_values(sim["robust_scaler"].transform(x))).reshape(-1)
+    if_contrib = sorted(
         (
-            {
-                "feature": col,
-                "label": FEATURE_LABELS.get(col, col),
-                "feature_value": round(float(row[col].iloc[0]), 4),
-                "shap_value": round(float(shap_values.values[0][i]), 5),
-            }
-            for i, col in enumerate(row.columns)
+            {"feature": c, "label": FEATURE_LABELS.get(c, c),
+             "feature_value": round(float(values[c]), 4),
+             "shap_value": round(float(-raw_shap[i]), 5)}
+            for i, c in enumerate(FEATURE_COLS_V2)
         ),
-        key=lambda d: abs(d["shap_value"]),
-        reverse=True,
+        key=lambda d: abs(d["shap_value"]), reverse=True,
+    )
+
+    # Autoencoder: the exact per-feature squared residual, which is what the
+    # reconstruction-error score is literally the mean of. Reported instead of a
+    # GradientExplainer approximation because it is exact and needs no background
+    # sample -- labelled precisely rather than presented as SHAP.
+    x_ae = sim["ae_scaler"].transform(x)
+    resid = (ae_recon[0] - x_ae[0]) ** 2
+    ae_contrib = sorted(
+        (
+            {"feature": c, "label": FEATURE_LABELS.get(c, c),
+             "feature_value": round(float(values[c]), 4),
+             "shap_value": round(float(resid[i]), 5),
+             "share_of_error": round(float(resid[i] / resid.sum()), 4)}
+            for i, c in enumerate(FEATURE_COLS_V2)
+        ),
+        key=lambda d: d["shap_value"], reverse=True,
     )
 
     return {
-        "risk_score": round(proba, 4),
-        "verdict_code": verdict_code,
-        "verdict_label": VERDICT_LABELS[verdict_code],
-        "review_threshold": STATE["thresholds"]["review_threshold"],
-        "block_threshold": STATE["thresholds"]["block_threshold"],
-        "shap": contributions[:8],
+        "account_id": body.account_id,
+        "isolation_forest": {"score": round(if_score, 5), "percentile": round(if_pct, 4)},
+        "autoencoder": {"score": round(ae_score, 5), "percentile": round(ae_pct, 4)},
+        "two_model_percentile_average": round(two_model, 4),
+        "two_model_reference_percentile": round(two_model_pct, 4),
+        "risk_tier_code": tier,
+        "risk_tier_label": TIER_LABELS[tier],
+        "frequency_inputs_used": {
+            "account_frequency": int(freq["account"][body.account_id]),
+            "device_frequency": int(freq["device"][body.device_id]),
+            "ip_frequency": int(freq["ip"][body.ip_address]),
+            "merchant_frequency": int(freq["merchant"][body.merchant_id]),
+            "location_share_pct": round(100 * sim["loc_prop"][body.location], 2),
+        },
+        "derived": {
+            "amount_to_balance_ratio_raw": round(ratio_raw, 4),
+            "high_amount_flag": bool(values["high_amount_transaction"]),
+            "high_amount_threshold": round(sim["high_amount_threshold"], 2),
+        },
+        "shap_isolation_forest": if_contrib[:8],
+        "autoencoder_error_contributions": ae_contrib[:8],
+        "score_note": SIMULATOR_SCORE_NOTE,
     }
 
 
-# ---------------------------------------------------------------------------
-# serve the frontend (same-origin, avoids CORS entirely)
-# ---------------------------------------------------------------------------
+@app.get("/api/meta")
+def meta():
+    """Provenance -- what this dashboard is actually serving, for verification."""
+    return {
+        "pipeline": "research_v2 (teammate 18-feature matrix) -- the client-designated final pipeline",
+        "score": "ensemble_percentile_average (Phase 12 v2 recommendation: Percentile Aggregation)",
+        "score_source": "artifacts_research_v2/ensemble_scores_v2.csv",
+        "thresholds_source": "artifacts_research_v2/threshold_analysis_v2.json",
+        "priority_threshold_p99": round(STATE["thresholds"]["priority"], 6),
+        "standard_threshold_p95": round(STATE["thresholds"]["standard"], 6),
+        "shap_sources": [
+            "artifacts_research_v2/shap_isolation_forest_v2.csv",
+            "artifacts_research_v2/shap_autoencoder_v2.csv",
+        ],
+        "ensemble_members": ENSEMBLE_MEMBERS,
+        "n_ensemble_members": len(ENSEMBLE_MEMBERS),
+        "n_transactions": int(len(STATE["ledger"])),
+        "n_features": len(FEATURE_COLS_V2),
+        "feature_columns": FEATURE_COLS_V2,
+        "model_reload_max_error": STATE["sim"]["repro_err"],
+        "block_tier": None,
+        "block_tier_note": (
+            "No automatic block tier exists. A cost-optimal block threshold requires counting false "
+            "negatives, which requires a fraud label this dataset does not have (Phase 13 v2)."
+        ),
+    }
+
+
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

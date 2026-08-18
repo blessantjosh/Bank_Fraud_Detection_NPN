@@ -1,0 +1,7 @@
+strategy_pair,spearman,jaccard_top5pct
+Weighted Avg vs Rank (Borda),0.9831087859656655,0.6153846153846154
+Weighted Avg vs Percentile Avg,0.9833319129631685,0.6258064516129033
+Weighted Avg vs PCA Stacking,0.9990259593186301,0.9236641221374046
+Rank (Borda) vs Percentile Avg,0.9998959725702868,0.96875
+Rank (Borda) vs PCA Stacking,0.9850058284395258,0.6688741721854304
+Percentile Avg vs PCA Stacking,0.9850570184671771,0.68

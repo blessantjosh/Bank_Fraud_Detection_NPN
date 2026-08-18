@@ -700,3 +700,26 @@ table.data-table {
 }
 
 .top-risk-link { color: var(--series-1-blue); font-weight: 600; }
+
+/* ---- research_v2 additions: frequency hints, model chips, worked cases ---- */
+.freq-hint {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--series-1-blue); background: color-mix(in srgb, var(--series-1-blue) 14%, transparent);
+  border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle;
+}
+.model-chip-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.model-chip {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px;
+  border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px;
+  color: var(--text-secondary); background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+.model-chip.flagged { border-color: var(--status-serious); color: var(--status-serious);
+  background: color-mix(in srgb, var(--status-serious) 12%, transparent); }
+.model-chip.na { opacity: .55; font-style: italic; }
+.model-chip .pct { font-variant-numeric: tabular-nums; font-weight: 600; }
+.worked-case {
+  border-left: 3px solid var(--series-1-blue); padding: 8px 0 8px 12px; margin-bottom: 12px;
+}
+.worked-case-id { font-weight: 650; font-size: 13px; margin-bottom: 3px; }
+.worked-case-note { font-size: 12.5px; color: var(--text-secondary); line-height: 1.55; }
+.shap-dual-title { font-size: 12px; font-weight: 650; margin: 14px 0 6px; color: var(--text-secondary); }

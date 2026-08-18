@@ -97,22 +97,22 @@ st.markdown("""
 def load_artifacts():
     reference = joblib.load(config.REFERENCE_PKL)
     model = XGBClassifier()
-    model.load_model(config.MODEL_JSON)
+    # BEST_MODEL_JSON is a copy of whichever XGBoost variant Stage 6 measured
+    # as primary (see best_model_choice.json) -- not always the SMOTE model.
+    model.load_model(config.BEST_MODEL_JSON)
     with open(config.THRESHOLDS_JSON) as f:
         thresholds = json.load(f)
     explainer = shap.TreeExplainer(model)
     raw = fe.load_raw(config.RAW_CSV)
     labeled = pd.read_csv(config.LABELED_CSV)
 
-    # labeled.csv was built by fit_engineer() sorting on (AccountID,
-    # TransactionDate, TransactionID) before engineering -- re-apply the
-    # identical sort to the raw rows so row i here lines up with row i of
-    # labeled.csv. This is the ONLY way to recover which real identifiers
-    # a given tier belongs to, since fit_engineer drops the raw ID columns
-    # from the modeling matrix itself.
-    raw_sorted = raw.sort_values(["AccountID", "TransactionDate", "TransactionID"]).reset_index(drop=True)
-    ledger = pd.concat(
-        [raw_sorted, labeled[["vote_count", "risk_tier", "is_fraud"]]], axis=1
+    # labeled.csv rows are grouped by split (train/val/test), not by the raw
+    # dataset's original row order -- join back to the raw rows by the
+    # TransactionID key Stage 1 carries through, rather than assuming
+    # positional alignment.
+    ledger = raw.merge(
+        labeled[["TransactionID", "vote_count", "risk_tier", "is_fraud", "split"]],
+        on="TransactionID", how="left",
     )
     return reference, model, thresholds, explainer, raw, ledger
 

@@ -1,23 +1,35 @@
 """
-STAGE 1 — Feature engineering.
+STAGE 1 -- Leakage-safe feature engineering.
 
 Reads the raw transaction log, drops the broken PreviousTransactionDate
 column and the raw TransactionID/AccountID identifiers, builds the
 behavioral features (per-account deviation, novelty flags, recency,
-device/IP/merchant popularity), encodes categoricals, and writes two
-feature matrices to artifacts/:
+device/IP/merchant popularity), encodes categoricals, and writes:
 
   features.csv         - unscaled, used by the tree-based supervised models
-                          (XGBoost / Decision Tree don't need scaling)
+                          (XGBoost / Random Forest / Decision Tree don't need
+                          scaling). Has a `split` column: train / val / test.
   features_scaled.csv   - StandardScaler-scaled, used by the distance-based
                           unsupervised detectors in Stage 2 (LOF, One-Class
                           SVM and MCD all assume comparable feature scales;
                           Isolation Forest doesn't strictly need it but is
-                          unaffected by it)
+                          unaffected by it). Same `split` column.
 
-Also persists reference.pkl (account history + global lookup stats) and
-scaler.pkl so the Streamlit demo can engineer a brand-new transaction's
-features identically to how training data was engineered.
+LEAKAGE FIX (see ML_AUDIT_AFTER_FIX.md): the split is chronological (train =
+earliest transactions, val/test = later ones), and every statistic that
+requires "fitting" -- transaction-type means, device/IP/merchant popularity,
+the median history-gap fallback, the one-hot/label encoders, and the
+StandardScaler -- is fit ONLY on the train fold, then applied unchanged to
+val and test. Nothing about val or test rows contributes to any of these
+fitted statistics.
+
+Also persists reference.pkl (full-dataset account history + lookup stats) so
+the Streamlit demo can engineer a brand-new transaction's features the same
+way training data was engineered. reference.pkl intentionally uses the FULL
+dataset (train+val+test) because, by the time a new transaction arrives in
+the demo, all of history to date is legitimately known -- this is a separate
+artifact from the train-only stats used to build the features above, and
+does not affect evaluation.
 """
 import joblib
 import pandas as pd
@@ -30,19 +42,69 @@ print(f"Loading raw data from {config.RAW_CSV}")
 df = fe.load_raw(config.RAW_CSV)
 print(f"  {len(df)} transactions across {df['AccountID'].nunique()} accounts")
 
-features, reference = fe.fit_engineer(df)
-print(f"Engineered {features.shape[1]} features:")
-print(" ", ", ".join(features.columns))
+df = fe.sort_chronological(df)
+df = fe.add_causal_features(df)
 
-scaler = StandardScaler()
-features_scaled = pd.DataFrame(
-    scaler.fit_transform(features), columns=features.columns, index=features.index
-)
+# ---- chronological train / val / test split ----
+cut_train = df["TransactionDate"].quantile(config.TRAIN_QUANTILE)
+cut_val = df["TransactionDate"].quantile(config.VAL_QUANTILE)
+split = pd.Series("test", index=df.index)
+split[df["TransactionDate"] <= cut_val] = "val"
+split[df["TransactionDate"] <= cut_train] = "train"
+print(f"\nChronological split (train <= {cut_train}, val <= {cut_val}, test after):")
+print(split.value_counts())
+
+train_raw = df[split == "train"].copy()
+val_raw = df[split == "val"].copy()
+test_raw = df[split == "test"].copy()
+
+# ---- fit every cross-transaction statistic on TRAIN ONLY ----
+stats = fe.fit_global_stats(train_raw)
+
+train_feat = fe.apply_global_stats(train_raw, stats)
+val_feat = fe.apply_global_stats(val_raw, stats)
+test_feat = fe.apply_global_stats(test_raw, stats)
+
+train_feat, encoders = fe.finalize_matrix(train_feat, encoders=None)
+val_feat, _ = fe.finalize_matrix(val_feat, encoders=encoders)
+test_feat, _ = fe.finalize_matrix(test_feat, encoders=encoders)
+
+# guard against a category appearing only in val/test producing a column
+# train never saw (or vice versa) -- align everything to the train schema
+val_feat = val_feat.reindex(columns=train_feat.columns, fill_value=0)
+test_feat = test_feat.reindex(columns=train_feat.columns, fill_value=0)
+
+# TransactionID is a row-identity key for downstream joins (e.g. the demo
+# app's identifier-search tab), NOT a model feature -- exclude it here.
+feature_cols = [c for c in train_feat.columns if c != "TransactionID"]
+print(f"\nEngineered {len(feature_cols)} features:")
+print(" ", ", ".join(feature_cols))
+
+features = pd.concat([train_feat, val_feat, test_feat], ignore_index=True)
+features["split"] = pd.Series(["train"] * len(train_feat) + ["val"] * len(val_feat) + ["test"] * len(test_feat))
+
+# ---- StandardScaler for the unsupervised detectors: fit on TRAIN only ----
+scaler = StandardScaler().fit(train_feat[feature_cols])
+scaled_train = pd.DataFrame(scaler.transform(train_feat[feature_cols]), columns=feature_cols)
+scaled_val = pd.DataFrame(scaler.transform(val_feat[feature_cols]), columns=feature_cols)
+scaled_test = pd.DataFrame(scaler.transform(test_feat[feature_cols]), columns=feature_cols)
+features_scaled = pd.concat([scaled_train, scaled_val, scaled_test], ignore_index=True)
+features_scaled["split"] = features["split"].values
 
 features.to_csv(config.FEATURES_CSV, index=False)
 features_scaled.to_csv(config.FEATURES_SCALED_CSV, index=False)
-joblib.dump(reference, config.REFERENCE_PKL)
 joblib.dump(scaler, config.SCALER_PKL)
+
+# ---- production reference: fit on the FULL dataset (see module docstring) ----
+full_stats = fe.fit_global_stats(df)
+full_account_history = fe.build_account_history(df)
+reference = {
+    "stats": full_stats,
+    "account_history": full_account_history,
+    "encoders": encoders,          # keep the TRAIN-fit encoders so the model's input schema matches exactly what it was trained on
+    "feature_cols": feature_cols,  # exact column order the shipped model expects
+}
+joblib.dump(reference, config.REFERENCE_PKL)
 
 print(f"\nSaved:")
 print(f"  {config.FEATURES_CSV}")

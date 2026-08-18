@@ -1,11 +1,41 @@
 """
 Shared feature-engineering logic for the fraud-detection pipeline.
 
-Used by both 01_feature_engineering.py (batch, at training time) and
-app_streamlit.py (single transaction, at inference time) so the two
-never drift apart. All account-history / global lookup stats needed to
-score a brand-new transaction are captured in the `reference` dict
-returned by fit_engineer() and persisted with joblib.
+Used by 01_feature_engineering.py (batch, at training time) and
+app_streamlit.py (single transaction, at inference time) so the two never
+drift apart.
+
+LEAKAGE-SAFE DESIGN (see ML_AUDIT_AFTER_FIX.md for the full writeup):
+
+  add_causal_features(df)
+      Strictly causal, per-account behavioral features (prior-average amount,
+      device/location novelty, time-since-last-txn). Each value only looks at
+      STRICTLY EARLIER rows of the SAME account in chronological order, so it
+      is safe to compute before any train/val/test split exists -- moving the
+      split boundary can never change these values.
+
+  fit_global_stats(df)
+      Fits every cross-transaction lookup/aggregate (transaction-type means,
+      device/IP/merchant popularity, the median history-gap used to fill a
+      first transaction's "time since last") using ONLY the rows passed in.
+      Call this with the TRAINING fold only.
+
+  apply_global_stats(df, stats)
+      Maps a fitted `stats` dict onto ANY dataframe (train, val, test, or a
+      single new transaction). Categories never seen during fitting fall back
+      to documented defaults rather than peeking at this df's own values.
+
+  finalize_matrix(df, encoders=None)
+      Drops identifier/date columns and one-hot/label-encodes the remaining
+      categoricals. Pass encoders=None to FIT (training fold only); pass the
+      fitted dict back in to transform any other fold/row identically.
+
+reference.pkl (used by app_streamlit.py for brand-new transactions) is built
+from the FULL dataset via fit_global_stats/build_account_history -- this is
+intentional and does not leak into evaluation: by the time a genuinely new
+transaction arrives in the demo, all 2,512 historical rows really are past
+data. It is a separate artifact from the train-only stats used to build the
+leakage-free train/val/test feature matrices.
 """
 import numpy as np
 import pandas as pd
@@ -32,12 +62,70 @@ def load_raw(path):
     return df
 
 
+def sort_chronological(df):
+    return df.sort_values(["AccountID", "TransactionDate", "TransactionID"]).reset_index(drop=True)
+
+
+def add_causal_features(df):
+    """Per-account features that only ever look backward -- safe pre-split."""
+    df = df.copy()
+    df["_prior_avg_amount"] = df.groupby("AccountID")["TransactionAmount"].transform(
+        lambda s: s.shift().expanding().mean()
+    )
+    df["DeviceNoveltyFlag"] = df.groupby("AccountID")["DeviceID"].transform(
+        lambda s: (~s.duplicated()).astype(int)
+    )
+    df["LocationNoveltyFlag"] = df.groupby("AccountID")["Location"].transform(
+        lambda s: (~s.duplicated()).astype(int)
+    )
+    df["_gap_hours"] = (
+        df.groupby("AccountID")["TransactionDate"].diff().dt.total_seconds() / 3600.0
+    )
+    return df
+
+
+def fit_global_stats(df):
+    """Fit cross-transaction lookups using ONLY the given (training) rows."""
+    type_avg = df.groupby("TransactionType")["TransactionAmount"].mean().to_dict()
+    device_counts = df["DeviceID"].value_counts().to_dict()
+    ip_counts = df["IP Address"].value_counts().to_dict()
+    merchant_counts = df["MerchantID"].value_counts().to_dict()
+    median_gap = df["_gap_hours"].median()
+    if pd.isna(median_gap):
+        median_gap = 0.0
+    global_amount_mean = df["TransactionAmount"].mean()
+    return {
+        "type_avg": type_avg,
+        "device_counts": device_counts,
+        "ip_counts": ip_counts,
+        "merchant_counts": merchant_counts,
+        "median_gap_hours": float(median_gap),
+        "global_amount_mean": float(global_amount_mean),
+    }
+
+
+def apply_global_stats(df, stats):
+    """Map a fitted stats dict onto any dataframe (train, val, test, or a new row)."""
+    df = df.copy()
+    type_avg_default = stats["global_amount_mean"]
+    type_avg_map = df["TransactionType"].map(stats["type_avg"]).fillna(type_avg_default)
+    df["Amount_vs_TypeAvg"] = (df["TransactionAmount"] - type_avg_map) / (type_avg_map + EPS)
+    df["DeviceTxnCount"] = df["DeviceID"].map(stats["device_counts"]).fillna(0).astype(int)
+    df["IPTxnCount"] = df["IP Address"].map(stats["ip_counts"]).fillna(0).astype(int)
+    df["MerchantTxnCount"] = df["MerchantID"].map(stats["merchant_counts"]).fillna(0).astype(int)
+
+    prior_avg_filled = df["_prior_avg_amount"].fillna(type_avg_map)
+    df["Amount_vs_AccountAvg"] = (df["TransactionAmount"] - prior_avg_filled) / (prior_avg_filled + EPS)
+    df["TimeSinceLastTxn"] = df["_gap_hours"].fillna(stats["median_gap_hours"])
+    return df
+
+
 def _encode_categoricals(df, encoders=None):
     """
     One-hot encode low-cardinality categoricals, label-encode high-cardinality
     ones. `encoders` is None at fit time (encoders are learned and returned);
-    pass the fitted dict back in at inference time to encode a single new row
-    the same way training did.
+    pass the fitted dict back in at transform time to encode any other
+    dataframe (another split, or a single new row) the same way.
     """
     df = df.copy()
     fitted = {} if encoders is None else encoders
@@ -78,45 +166,30 @@ def _encode_categoricals(df, encoders=None):
     return df, fitted
 
 
-def fit_engineer(df):
+def finalize_matrix(df, encoders=None):
     """
-    Batch feature engineering at training time. Returns (engineered_df, reference).
-    reference holds every lookup table needed to engineer a single brand-new
-    transaction later (see transform_new below).
+    Drop raw identifier/date columns not used as model inputs (but KEEP
+    TransactionID -- it isn't a model feature, but downstream stages need a
+    stable key to re-join a labeled row back to its original raw record,
+    since the train/val/test concatenation order no longer matches the
+    single global chronological sort). Encode remaining categoricals (fit if
+    encoders=None).
     """
-    df = df.sort_values(["AccountID", "TransactionDate", "TransactionID"]).reset_index(drop=True)
+    drop_cols = [c for c in RAW_ID_COLS + ["_prior_avg_amount", "_gap_hours",
+                                            "TransactionDate", "AccountID"]
+                 if c in df.columns]
+    df = df.drop(columns=drop_cols)
+    df, fitted_encoders = _encode_categoricals(df, encoders=encoders)
+    return df, fitted_encoders
 
-    # ---- global lookups (used both as features and stored for inference) ----
-    type_avg = df.groupby("TransactionType")["TransactionAmount"].mean().to_dict()
-    device_counts = df["DeviceID"].value_counts().to_dict()
-    ip_counts = df["IP Address"].value_counts().to_dict()
-    merchant_counts = df["MerchantID"].value_counts().to_dict()
 
-    df["_type_avg"] = df["TransactionType"].map(type_avg)
-    df["Amount_vs_TypeAvg"] = (df["TransactionAmount"] - df["_type_avg"]) / (df["_type_avg"] + EPS)
-    df["DeviceTxnCount"] = df["DeviceID"].map(device_counts)
-    df["IPTxnCount"] = df["IP Address"].map(ip_counts)
-    df["MerchantTxnCount"] = df["MerchantID"].map(merchant_counts)
-
-    # ---- per-account chronological (leakage-safe: only prior rows) ----
-    prior_avg = df.groupby("AccountID")["TransactionAmount"].transform(
-        lambda s: s.shift().expanding().mean()
-    )
-    prior_avg_filled = prior_avg.fillna(df["_type_avg"])
-    df["Amount_vs_AccountAvg"] = (df["TransactionAmount"] - prior_avg_filled) / (prior_avg_filled + EPS)
-
-    df["DeviceNoveltyFlag"] = df.groupby("AccountID")["DeviceID"].transform(
-        lambda s: (~s.duplicated()).astype(int)
-    )
-    df["LocationNoveltyFlag"] = df.groupby("AccountID")["Location"].transform(
-        lambda s: (~s.duplicated()).astype(int)
-    )
-
-    gap_hours = df.groupby("AccountID")["TransactionDate"].diff().dt.total_seconds() / 3600.0
-    median_gap = gap_hours.median()
-    df["TimeSinceLastTxn"] = gap_hours.fillna(median_gap)
-
-    # ---- per-account state needed to score a brand-new transaction later ----
+def build_account_history(df):
+    """
+    Full per-account snapshot (devices/locations seen, last txn time, running
+    mean amount) as of the END of the given dataframe. Used only to engineer
+    brand-new, genuinely-future transactions in the demo app -- never to score
+    a transaction that is already inside this dataframe.
+    """
     account_history = {}
     for acc, g in df.groupby("AccountID"):
         account_history[acc] = {
@@ -126,34 +199,20 @@ def fit_engineer(df):
             "running_mean_amount": g["TransactionAmount"].mean(),
             "n": len(g),
         }
-
-    df = df.drop(columns=RAW_ID_COLS + ["_type_avg", "TransactionID", "TransactionDate", "AccountID"])
-    df, encoders = _encode_categoricals(df, encoders=None)
-
-    feature_cols = [c for c in df.columns]
-    reference = {
-        "type_avg": type_avg,
-        "device_counts": device_counts,
-        "ip_counts": ip_counts,
-        "merchant_counts": merchant_counts,
-        "account_history": account_history,
-        "median_gap_hours": median_gap,
-        "encoders": encoders,
-        "feature_cols": feature_cols,
-    }
-    return df, reference
+    return account_history
 
 
 def transform_new(txn, reference):
     """
     Engineer features for ONE new transaction dict (as collected from the
-    Streamlit form) using stats captured at training time. txn keys mirror the
-    raw CSV columns (TransactionAmount, TransactionType, Location, DeviceID,
+    Streamlit form) using stats captured in `reference` (fit on the FULL
+    historical dataset -- see module docstring). txn keys mirror the raw CSV
+    columns (TransactionAmount, TransactionType, Location, DeviceID,
     'IP Address', MerchantID, Channel, CustomerAge, CustomerOccupation,
     TransactionDuration, LoginAttempts, AccountBalance, AccountID, TransactionDate).
     """
-    type_avg = reference["type_avg"].get(txn["TransactionType"],
-                                          np.mean(list(reference["type_avg"].values())))
+    stats = reference["stats"]
+    type_avg = stats["type_avg"].get(txn["TransactionType"], stats["global_amount_mean"])
     amt = txn["TransactionAmount"]
     row = {
         "TransactionAmount": amt,
@@ -162,9 +221,9 @@ def transform_new(txn, reference):
         "LoginAttempts": txn["LoginAttempts"],
         "AccountBalance": txn["AccountBalance"],
         "Amount_vs_TypeAvg": (amt - type_avg) / (type_avg + EPS),
-        "DeviceTxnCount": reference["device_counts"].get(txn["DeviceID"], 0) + 1,
-        "IPTxnCount": reference["ip_counts"].get(txn["IP Address"], 0) + 1,
-        "MerchantTxnCount": reference["merchant_counts"].get(txn["MerchantID"], 0) + 1,
+        "DeviceTxnCount": stats["device_counts"].get(txn["DeviceID"], 0) + 1,
+        "IPTxnCount": stats["ip_counts"].get(txn["IP Address"], 0) + 1,
+        "MerchantTxnCount": stats["merchant_counts"].get(txn["MerchantID"], 0) + 1,
         "TransactionType": txn["TransactionType"],
         "Location": txn["Location"],
         "Channel": txn["Channel"],
@@ -177,7 +236,7 @@ def transform_new(txn, reference):
         row["Amount_vs_AccountAvg"] = row["Amount_vs_TypeAvg"]
         row["DeviceNoveltyFlag"] = 1
         row["LocationNoveltyFlag"] = 1
-        row["TimeSinceLastTxn"] = reference["median_gap_hours"]
+        row["TimeSinceLastTxn"] = stats["median_gap_hours"]
     else:
         prior_avg = hist["running_mean_amount"]
         row["Amount_vs_AccountAvg"] = (amt - prior_avg) / (prior_avg + EPS)

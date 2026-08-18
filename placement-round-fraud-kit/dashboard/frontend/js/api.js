@@ -37,7 +37,9 @@ const Api = (() => {
     modelComparison: () => get("/api/model-comparison"),
     explainability: () => get("/api/explainability"),
     simulatorOptions: () => get("/api/simulator/options"),
+    simulatorAccount: (id) => get(`/api/simulator/account/${encodeURIComponent(id)}`),
     score: (payload) => post("/api/score", payload),
+    meta: () => get("/api/meta"),
     queueExportUrl: () => "/api/queue/export",
   };
 })();

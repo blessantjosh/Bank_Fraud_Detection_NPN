@@ -1,0 +1,28 @@
+{
+  "autoencoder": {
+    "train_mse_mean": 0.285775,
+    "val_mse_mean": 0.296569,
+    "train_mae_mean": 0.402518,
+    "val_mae_mean": 0.410464,
+    "val_mse_p95": 0.555129,
+    "val_mse_p99": 0.633922,
+    "source": "artifacts_research_v2/autoencoder_reconstruction_errors.csv + autoencoder_config.json (Phase 7 v2, not recomputed)"
+  },
+  "vae": {
+    "train_recon_mse_mean": 0.337132,
+    "val_recon_mse_mean": 0.345832,
+    "val_recon_mse_p95": 0.639382,
+    "val_recon_mse_p99": 0.84842,
+    "val_recon_mse_max": 1.213701,
+    "val_kl_mean": 1.195753,
+    "source": "artifacts_research_v2/vae_config.json (Phase 8 v2, not recomputed)"
+  },
+  "lstm_ae": {
+    "train_mse_mean": 0.434477,
+    "val_mse_mean": 0.7907,
+    "applicable_rows": 2402,
+    "applicable_pct": 95.62,
+    "source": "artifacts_research_v2/lstm_ae_config.json (Phase 8 v2, not recomputed)"
+  },
+  "comparative_note": "Autoencoder val MSE (0.2966) < VAE val MSE (0.3458) < LSTM-AE val MSE (0.7907) -- the plain feedforward autoencoder reconstructs most precisely of the three; the VAE trades some precision for its regularized latent space; the LSTM-AE reconstructs markedly less precisely and, per Phase 8 (v2) Section 2.11, its validation MSE actually rises after epoch ~50 -- a genuine overfitting signature on this feature set's short, sparse per-account sequences, reported honestly rather than smoothed over."
+}

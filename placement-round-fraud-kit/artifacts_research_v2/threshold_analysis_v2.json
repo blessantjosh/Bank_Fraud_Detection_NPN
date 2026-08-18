@@ -1,0 +1,106 @@
+{
+  "recommended_score": "ensemble_percentile_average (Phase 12 v2 recommendation)",
+  "score_distribution": {
+    "mean": 0.5007,
+    "std": 0.225,
+    "min": 0.0458,
+    "max": 0.9951,
+    "q1": 0.3115,
+    "q3": 0.6802
+  },
+  "percentile_thresholds": [
+    {
+      "method": "P95",
+      "threshold_value": 0.867124,
+      "n_flagged": 126,
+      "pct_flagged": 5.016,
+      "flagged_per_day_this_sample": 0.3452,
+      "illustrative_upper_bound_review_cost_usd_if_all_fp": 630.0
+    },
+    {
+      "method": "P97",
+      "threshold_value": 0.910861,
+      "n_flagged": 76,
+      "pct_flagged": 3.025,
+      "flagged_per_day_this_sample": 0.2082,
+      "illustrative_upper_bound_review_cost_usd_if_all_fp": 380.0
+    },
+    {
+      "method": "P99",
+      "threshold_value": 0.951023,
+      "n_flagged": 26,
+      "pct_flagged": 1.035,
+      "flagged_per_day_this_sample": 0.0712,
+      "illustrative_upper_bound_review_cost_usd_if_all_fp": 130.0
+    },
+    {
+      "method": "P99.5",
+      "threshold_value": 0.964634,
+      "n_flagged": 13,
+      "pct_flagged": 0.518,
+      "flagged_per_day_this_sample": 0.0356,
+      "illustrative_upper_bound_review_cost_usd_if_all_fp": 65.0
+    }
+  ],
+  "statistical_thresholds_on_recommended_score": [
+    {
+      "method": "mean+3sigma",
+      "score": "ensemble_percentile_average",
+      "threshold_value": 1.175665,
+      "n_flagged": 0,
+      "pct_flagged": 0.0,
+      "score_max": 0.995118,
+      "score_min": 0.045842
+    },
+    {
+      "method": "Q3+1.5*IQR",
+      "score": "ensemble_percentile_average",
+      "threshold_value": 1.233169,
+      "n_flagged": 0,
+      "pct_flagged": 0.0,
+      "score_max": 0.995118,
+      "score_min": 0.045842
+    }
+  ],
+  "statistical_thresholds_context_unbounded_scores": [
+    {
+      "method": "mean+3sigma",
+      "score": "score_isolation_forest (unbounded, for context)",
+      "threshold_value": 0.04423,
+      "n_flagged": 16,
+      "pct_flagged": 0.637,
+      "score_max": 0.114645,
+      "score_min": -0.154706
+    },
+    {
+      "method": "Q3+1.5*IQR",
+      "score": "score_isolation_forest (unbounded, for context)",
+      "threshold_value": 0.031919,
+      "n_flagged": 25,
+      "pct_flagged": 0.995,
+      "score_max": 0.114645,
+      "score_min": -0.154706
+    },
+    {
+      "method": "mean+3sigma",
+      "score": "ensemble_weighted_average (unbounded, for context)",
+      "threshold_value": 2.193667,
+      "n_flagged": 29,
+      "pct_flagged": 1.154,
+      "score_max": 7.43423,
+      "score_min": -1.24607
+    },
+    {
+      "method": "Q3+1.5*IQR",
+      "score": "ensemble_weighted_average (unbounded, for context)",
+      "threshold_value": 1.546218,
+      "n_flagged": 79,
+      "pct_flagged": 3.145,
+      "score_max": 7.43423,
+      "score_min": -1.24607
+    }
+  ],
+  "statistical_threshold_finding": "mean+3sigma flags 0 transactions and Q3+1.5*IQR flags 0 on ensemble_percentile_average (max observed 0.9951, thresholds computed at 1.1757 and 1.2332 respectively). ensemble_percentile_average is a bounded average of 11 models' percentile ranks in (0,1); averaging several roughly-independent percentiles compresses the tails (a CLT-like effect) relative to any single unbounded model's raw score. Confirmed by applying the identical thresholds to two unbounded scores for context: Isolation Forest's raw score (mean+3sigma flags 16, Q3+1.5*IQR flags 25) and the Phase 12 (v2) Weighted-Average ensemble (mean+3sigma flags 29, Q3+1.5*IQR flags 79).",
+  "business_impact_caveat": "This dataset has no fraud label, so a true cost-minimizing threshold (balancing illustrative FP cost $5 against illustrative FN cost $250, v1's own stated illustrative figures -- not real bank numbers either) CANNOT be computed here, because that requires knowing which transactions are actually fraud, both among the flagged (to count true positives) and among the unflagged (to count false negatives). What CAN be shown honestly: (a) how many transactions land above each threshold, (b) the implied review-team operational load, and (c) an UPPER-BOUND illustrative review cost assuming every flagged transaction is a false positive (n_flagged x $5) -- not a total-cost estimate, only a worst-case review-labor cost ceiling.",
+  "operational_load_caveat": "This dataset covers 365 days and 2512 transactions total across 495 accounts -- an average of 6.88 transactions/day. This is a small research sample, not representative of a real bank's daily transaction volume; the 'flagged per day' figures below describe THIS SAMPLE's scale only, not a production volume estimate."
+}

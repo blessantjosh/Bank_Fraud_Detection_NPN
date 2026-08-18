@@ -1,202 +1,266 @@
 # Fraud Detection Pipeline — Technical Documentation
 
 Dataset: `bank_transactions_data_2.csv` — 2,512 transactions, 495 accounts, 16 raw columns, no fraud label.
-All numbers below are from an actual run of the pipeline in `src/` against this exact file, not illustrative estimates.
+All numbers below are from an actual run of the leakage-fixed pipeline in `src/` against this exact file, not
+illustrative estimates. See `ML_AUDIT_AFTER_FIX.md` for the full leakage audit and exactly what changed.
 
 ---
 
-## Stage 1 — Feature Engineering
+## Stage 1 — Leakage-Safe Feature Engineering
 
-**Dropped:** `PreviousTransactionDate` (7 unique values, all clustered within minutes of one export timestamp on 2024-11-04 — a data-export artifact, not a real per-account "previous transaction" time). `TransactionID` (pure identifier). `AccountID` (used only as a grouping key during engineering, excluded from the model matrix — including it directly would let the model memorize individual accounts instead of learning behavior). `DeviceID`, `IP Address`, `MerchantID` (high-cardinality raw identifiers, converted into count features instead of encoded directly).
+**Dropped:** `PreviousTransactionDate` (7 unique values, all clustered within minutes of one export timestamp on
+2024-11-04 — a data-export artifact, not a real per-account "previous transaction" time). `AccountID` (used only as
+a grouping key during engineering, excluded from the model matrix). `DeviceID`, `IP Address`, `MerchantID`
+(high-cardinality raw identifiers, converted into count features instead of encoded directly). `TransactionID` is
+kept as a non-feature row-identity key (used to re-join a scored row back to its raw record; explicitly excluded
+from the model matrix in every training/evaluation stage).
 
 **20 engineered features** (after encoding):
 
 | Feature | Definition |
 |---|---|
 | `TransactionAmount`, `CustomerAge`, `TransactionDuration`, `LoginAttempts`, `AccountBalance` | raw numeric columns |
-| `Amount_vs_AccountAvg` | `(amount - prior_account_mean) / prior_account_mean`, where `prior_account_mean` is that account's **expanding mean of all prior transactions only** (computed via `groupby().shift().expanding()`, so no future/current-row leakage). First-ever transaction for an account falls back to the type average. |
-| `Amount_vs_TypeAvg` | deviation from the global mean amount for that `TransactionType` (Debit/Credit) |
-| `DeviceNoveltyFlag` / `LocationNoveltyFlag` | 1 if this Device/Location has never appeared before in this account's history (first-ever transaction counts as novel = 1) |
-| `TimeSinceLastTxn` | hours since this account's previous transaction, from `TransactionDate` itself; first transaction filled with the dataset median gap |
-| `DeviceTxnCount`, `IPTxnCount`, `MerchantTxnCount` | how many total transactions that Device/IP/Merchant has across the whole dataset |
-| `Location_enc` | label-encoded (cardinality > 10) |
-| `TransactionType_Debit`, `Channel_Branch`, `Channel_Online`, `CustomerOccupation_Engineer/Retired/Student` | one-hot, first category per group dropped as reference level (avoids the perfect multicollinearity that made the MCD detector's covariance matrix singular in Stage 2) |
+| `Amount_vs_AccountAvg` | `(amount - prior_account_mean) / prior_account_mean`, where `prior_account_mean` is that account's **expanding mean of all prior transactions only** (computed via `groupby().shift().expanding()` — always causal, safe regardless of where a train/val/test split boundary falls). First-ever transaction for an account falls back to the (train-fit) type average. |
+| `Amount_vs_TypeAvg` | deviation from the mean amount for that `TransactionType` (Debit/Credit), fit on the **training fold only** and mapped onto val/test |
+| `DeviceNoveltyFlag` / `LocationNoveltyFlag` | 1 if this Device/Location has never appeared before in this account's *prior* history (first-ever transaction counts as novel = 1); always looks backward within the account, never at future rows |
+| `TimeSinceLastTxn` | hours since this account's previous transaction, from `TransactionDate` itself; first transaction filled with the **training-fold** median gap |
+| `DeviceTxnCount`, `IPTxnCount`, `MerchantTxnCount` | how many transactions that Device/IP/Merchant had **in the training fold**, mapped onto val/test (unseen identifiers → 0) |
+| `Location_enc` | label-encoded (cardinality > 10), encoder fit on training fold only |
+| `TransactionType_Debit`, `Channel_Branch`, `Channel_Online`, `CustomerOccupation_Engineer/Retired/Student` | one-hot, first category per group dropped as reference level; categories fixed from the training fold |
 
-Two matrices are saved: unscaled (`features.csv`, used by the tree-based models, which don't need scaling) and `StandardScaler`-scaled (`features_scaled.csv`, used by the distance-based detectors in Stage 2).
+Two matrices are saved, both with a `split` column (`train`/`val`/`test`): unscaled (`features.csv`, used by the
+tree-based models) and `StandardScaler`-scaled (`features_scaled.csv`, used by the distance-based detectors in
+Stage 2). **The scaler and every lookup/encoder above are fit on the training fold only** — see the leakage audit.
+
+### Chronological train / validation / test split
+
+Split by `TransactionDate` (not randomly): train = earliest ~64% (1,608 rows, through 2023‑08‑28), val = next ~16%
+(401 rows, through 2023‑10‑23), test = latest ~20% (503 rows). This mirrors the real deployment scenario — a model
+trained on past transactions, evaluated on future ones — and is the methodologically correct choice for a
+time-ordered transaction/fraud problem (see `ML_AUDIT_AFTER_FIX.md` §4 for the full justification).
 
 ---
 
-## Stage 2 — Unsupervised Anomaly Ensemble
+## Stage 2 — Unsupervised Anomaly Ensemble (fit on TRAIN only)
 
-No label exists, so four independent detectors vote on which transactions look statistically unusual. Contamination assumption: **5%** (documented, unverified — applied identically to all four so votes are comparable).
+No label exists, so four independent detectors vote on which transactions look statistically unusual.
+Contamination assumption: **5%** (documented, unverified — applied identically to all four so votes are
+comparable). **All four are fit exclusively on the 1,608 training-fold rows**, then used to *predict*
+(out-of-sample) on val and test — none of them ever sees a val/test row during fitting. LOF uses scikit-learn's
+`novelty=True` mode, the documented way to get an out-of-sample `.predict()` from LOF.
 
-| Detector | Principle | Flagged |
-|---|---|---|
-| Isolation Forest | isolates points via random tree partitioning; anomalies need fewer splits | 126 (5.02%) |
-| Local Outlier Factor | local density much lower than neighbors | 126 (5.02%) |
-| One-Class SVM | outside the learned soft boundary around normal data | 120 (4.78%) |
-| MCD (EllipticEnvelope) | robust Mahalanobis distance from a covariance estimate that isn't itself dragged off by outliers | 126 (5.02%) |
+| Detector | Principle | Train anomaly rate | Val anomaly rate | Test anomaly rate |
+|---|---|---|---|---|
+| Isolation Forest | isolates points via random tree partitioning | 5.04% | 12.47% | 9.54% |
+| Local Outlier Factor | local density much lower than neighbors | 4.42% | 9.73% | 12.33% |
+| One-Class SVM | outside the learned soft boundary around normal data | 5.41% | 21.20% | 23.06% |
+| MCD (EllipticEnvelope) | robust Mahalanobis distance | 5.04% | 4.24% | 3.38% |
 
-**Vote-count distribution** (of 2,512 transactions):
+**Notable, honest finding:** train anomaly rates land almost exactly on the 5% contamination target (expected,
+since that's what each detector was fit to produce on its own fit data), but val/test rates — genuinely
+out-of-sample — are 2–4x higher for three of the four detectors. This is a real signal that later transactions in
+this dataset look more unusual relative to the *training period's* notion of "normal" (i.e. there is real
+distribution drift over time), not a bug. Fitting on the whole dataset (the old, leaky approach) would have hidden
+this: every detector would have "seen" the drifted data during fitting and calibrated its own boundary around it,
+producing a deceptively uniform ~5% rate everywhere.
 
-| Votes | Count |
-|---|---|
-| 0 | 2,230 |
-| 1 | 146 |
-| 2 | 79 |
-| 3 | 34 |
-| 4 | 23 |
-
-Note: `DeviceNoveltyFlag` is ~99.5% constant (almost every transaction is a "new" device for its account), which makes MCD's robust covariance estimate ill-conditioned on some resamples — this produces benign convergence warnings (suppressed in the script), not invalid output.
+Note: `DeviceNoveltyFlag` is ~99.5% constant (almost every transaction is a "new" device for its account), which
+makes MCD's robust covariance estimate ill-conditioned on some resamples — this produces benign convergence
+warnings (suppressed in the script), not invalid output.
 
 ---
 
 ## Stage 3 — Confidence-Tiered Labeling
 
-| Tier | Rule | Count |
+| Tier | Rule | Count (all folds) |
 |---|---|---|
-| **High confidence fraud** | 3–4 of 4 detectors agree | 57 |
-| **Medium confidence / needs review** | exactly 2 agree | 79 |
-| **Normal** | 0–1 agree | 2,376 |
+| **High confidence fraud** | 3–4 of 4 detectors agree | 79 |
+| **Medium confidence / needs review** | exactly 2 agree | 137 |
+| **Normal** | 0–1 agree | 2,296 |
 
-Binary label for the supervised model: High + Medium → `is_fraud=1` (**136 transactions, 5.41% prevalence**); Normal → `is_fraud=0`. The 3-tier column is kept in `labeled.csv` for the demo, since "needs review" is a real operational category a binary label would discard.
+Binary label for the supervised models: High + Medium → `is_fraud=1`; Normal → `is_fraud=0`. Prevalence differs by
+fold for the same reason as Stage 2's drift finding — the detectors were fit on train, so train's own pseudo-fraud
+rate sits near the 5% contamination target while val/test run hotter:
+
+| Fold | Rows | Fraud-proxy | Prevalence |
+|---|---|---|---|
+| Train | 1,608 | 86 | 5.35% |
+| Val | 401 | 59 | 14.71% |
+| Test | 503 | 71 | 14.12% |
+
+The 3-tier column is kept in `labeled.csv` for the demo, since "needs review" is a real operational category a
+binary label would discard.
 
 ---
 
-## Stage 4 — Balancing
+## Stage 4 — Balancing (TRAIN fold only)
 
-Stratified 80/20 split **before** any resampling (resampling before splitting would leak synthetic points derived from test-fold minority rows into training):
+SMOTE fit on the training fold only, `k_neighbors=5` (86 real minority rows is enough for 5-NN interpolation to
+stay meaningful) → **3,044 rows, 1,522/1,522 (50/50)**.
 
-- Train: 2,009 rows (109 fraud, 5.43%)
-- Test: 503 rows (27 fraud, 5.37%)
-
-SMOTE fit on the training fold only, `k_neighbors=5` (109 real minority rows is enough for 5-NN interpolation to stay meaningful) → **3,800 rows, 1,900/1,900 (50/50)**.
-
-Alternative: class-weighting via `scale_pos_weight = 17.43` (ratio of majority to minority in the training fold), trained directly on the original 2,009-row imbalanced fold with no synthetic data.
+Alternative: class-weighting via `scale_pos_weight = 17.70` (ratio of majority to minority in the training fold),
+trained directly on the original 1,608-row imbalanced fold with no synthetic data. Val and test are **never**
+resampled or used to fit anything in this stage.
 
 ---
 
-## Stage 5 — Model + Explainability
+## Stage 4b — Robust Cross-Validated Evaluation (before any fine-tuning)
 
-**Primary model:** XGBoost (`n_estimators=200, max_depth=4, learning_rate=0.05`) trained on the SMOTE-balanced training set.
-**Comparison model:** identical XGBoost config, trained on the original imbalanced fold with `scale_pos_weight`.
+Before fitting the final models in Stage 5, a robust 5-fold stratified cross-validation runs **on the training
+fold only** (val/test are never read by this stage), for each model's baseline hyperparameters — the same
+configuration used in Stage 5. This exists so that (a) the reported metrics have an honest variance estimate
+(mean ± std across 5 folds) instead of a single point value, and (b) any future hyperparameter search has a
+ready-made harness that stays entirely inside the training fold, per §11's requirement that tuning must never
+touch validation (used for model/threshold selection) or test (used exactly once, at the end).
 
-### SMOTE vs. class-weighting — measured, not assumed
+SMOTE is refit inside each CV split's own training portion only, never on the held-out CV fold — the same
+resample-after-split discipline as Stage 4.
 
-| | ROC-AUC | PR-AUC |
-|---|---|---|
-| SMOTE | 0.9428 | 0.5934 |
-| Class-weighted | **0.9532** | **0.7398** |
+| Model | Precision (mean±std) | Recall (mean±std) | F1 (mean±std) | ROC-AUC (mean±std) | PR-AUC (mean±std) |
+|---|---|---|---|---|---|
+| XGBoost + SMOTE | 0.444 ± 0.083 | 0.546 ± 0.134 | 0.487 ± 0.099 | 0.915 ± 0.033 | 0.561 ± 0.077 |
+| **XGBoost + Class Weighting** | **0.561 ± 0.085** | 0.546 ± 0.081 | **0.553 ± 0.080** | **0.949 ± 0.020** | **0.618 ± 0.058** |
+| Random Forest (balanced) | 0.394 ± 0.063 | 0.732 ± 0.091 | 0.511 ± 0.072 | 0.926 ± 0.020 | 0.432 ± 0.145 |
 
-**Class-weighting measures better here**, especially on PR-AUC — the metric that matters most under 5% prevalence. With only ~109 real minority rows, SMOTE's k=5 interpolation likely blurs the sharp 0/1 novelty-flag boundaries the tree would otherwise split on cleanly. The SMOTE model still ships as the primary model (the brief explicitly requires demonstrating SMOTE), but this comparison is reported honestly rather than assumed — **for a real deployment at this dataset size, class-weighting would be the better default.**
+Full per-fold numbers: `artifacts/cv_per_fold.csv`. Summary: `artifacts/cv_summary.csv` / `.json`.
 
-### Global SHAP importance (mean |SHAP value| on the test set)
+**Read alongside Stage 6, not instead of it:** these CV numbers are all computed from *within* the training
+period (folds drawn from the same 1,608 chronologically-earliest rows), so they run noticeably higher than the
+val/test numbers in Stage 6 (e.g. class-weighted XGBoost's CV ROC-AUC of 0.949 vs. its test ROC-AUC of 0.831).
+That gap is consistent with, and further evidence for, the distribution-drift finding in Stage 2/3 — later
+transactions genuinely look different from the training period, so even a robust in-period CV estimate does not
+fully anticipate out-of-period performance. This is exactly why the val/test split (not just CV) is kept as the
+final word on generalization — CV alone, on this dataset, would have looked more optimistic than reality.
+
+---
+
+## Stage 5 — Models (trained on TRAIN fold only)
+
+Three classifiers, same leakage-free features, same train fold, same `random_state=42` — no model gets extra
+tuning or information the others don't:
+
+- **Model A:** XGBoost (`n_estimators=200, max_depth=4, learning_rate=0.05`) on the SMOTE-balanced training set.
+- **Model B:** identical XGBoost config, `scale_pos_weight=17.70`, on the original imbalanced training fold.
+- **Model C (new):** Random Forest (`n_estimators=200, max_depth=4, class_weight="balanced"`) on the original
+  imbalanced training fold — added for the hackathon model comparison.
+
+## Stage 6 — Model Comparison, Cost-Based Threshold, Final Evaluation, SHAP
+
+### Why accuracy is misleading
+
+A model predicting "Normal" for every test transaction scores **85.88% accuracy** while catching 0 of the 71 real
+fraud-proxy cases in the test fold. Accuracy alone would make that naive model look strong; it isn't.
+
+### Model comparison — measured on the untouched TEST fold, threshold = 0.5
+
+| Model | Precision | Recall | F1 | ROC-AUC | PR-AUC | FP | FN | TP | TN |
+|---|---|---|---|---|---|---|---|---|---|
+| XGBoost + SMOTE | 0.500 | 0.394 | 0.441 | 0.801 | 0.468 | 28 | 43 | 28 | 404 |
+| **XGBoost + Class Weighting** | **0.767** | 0.324 | 0.455 | **0.831** | **0.558** | **7** | 48 | 23 | 425 |
+| Random Forest (balanced) | 0.453 | 0.338 | 0.387 | 0.797 | 0.431 | 29 | 47 | 24 | 403 |
+
+Full table with the diagnostic VAL-fold numbers alongside: `artifacts/model_comparison.csv` /
+`model_comparison.json`.
+
+**Selected primary model: XGBoost + Class Weighting** — highest test PR-AUC (0.558, the metric that matters most
+under this class imbalance), highest ROC-AUC (0.831), and fewest false positives (7) of the three. Random Forest,
+added specifically for this comparison, does not beat either XGBoost variant here — a legitimate result of a fair,
+same-data comparison, not a foregone conclusion. See `artifacts/best_model_choice.json` for the recorded reasoning.
+
+*(For context: before the leakage fix, this same comparison reported ROC-AUC ≈ 0.94–0.95 and PR-AUC ≈ 0.59–0.74 —
+those numbers were measuring how well XGBoost reproduced an anomaly ensemble that had already seen the test data
+during fitting, not real generalization. The lower, leakage-free numbers above are the honest estimate.)*
+
+### Global SHAP importance (mean |SHAP value| on test, XGBoost + Class Weighting)
 
 | Rank | Feature | Mean \|SHAP\| |
 |---|---|---|
-| 1 | `Amount_vs_AccountAvg` | 0.944 |
-| 2 | `Channel_Branch` | 0.696 |
-| 3 | `LoginAttempts` | 0.679 |
-| 4 | `LocationNoveltyFlag` | 0.626 |
-| 5 | `Channel_Online` | 0.603 |
-| 6 | `CustomerOccupation_Retired` | 0.408 |
-| 7 | `DeviceNoveltyFlag` | 0.354 |
-| 8 | `TransactionAmount` | 0.322 |
-| 9 | `TimeSinceLastTxn` | 0.260 |
-| 10 | `MerchantTxnCount` | 0.253 |
+| 1 | `TransactionAmount` | 0.882 |
+| 2 | `Amount_vs_AccountAvg` | 0.742 |
+| 3 | `LoginAttempts` | 0.562 |
+| 4 | `TransactionType_Debit` | 0.503 |
+| 5 | `IPTxnCount` | 0.420 |
+| 6 | `LocationNoveltyFlag` | 0.415 |
+| 7 | `TimeSinceLastTxn` | 0.387 |
+| 8 | `TransactionDuration` | 0.266 |
 
-### Individual explanation
+Full ranking: `artifacts/shap_global_importance.csv`. Plots: `artifacts/plots/shap_summary_bar.png`,
+`shap_summary_beeswarm.png`, `shap_waterfall_top_risk.png`.
 
-Highest-risk transaction in the test set (row 370, true tier = fraud, predicted P(fraud) = **0.981**):
-
-| Feature | Value | SHAP contribution |
-|---|---|---|
-| `DeviceNoveltyFlag` | 0 (known device) | **+5.87** |
-| `Channel_Branch` | False | −0.70 |
-| `Channel_Online` | True | +0.69 |
-| `Amount_vs_AccountAvg` | −0.99 (well below its own average) | −0.42 |
-| `LoginAttempts` | 1 | −0.39 |
-
-Worth flagging honestly: a *known* device (novelty flag = 0) is the single largest driver of predicted risk for this transaction — the opposite of the intuitive "new device = risky" story. This reflects a real pattern the anomaly ensemble picked up in this specific dataset (it isn't wrong or a bug), but it's a reminder that SHAP explains what the model learned from the generated labels, not a verified causal fraud mechanism.
-
-### Decision tree rules (depth=3, for the slide)
-
-Trained with `class_weight="balanced"` — meaning the printed predicted class weighs each fraud row ~17x more heavily than a normal row, so a leaf can predict "Fraud" even when raw normal rows outnumber raw fraud rows in it. Both counts are shown below for transparency:
+### Decision tree rules (depth=3, trained on train fold, for the slide)
 
 ```
-IF Amount_vs_AccountAvg <= 1.57 AND LoginAttempts <= 2.50 AND DeviceNoveltyFlag <= 0.50
-   -> predict FRAUD   (n=7: 0 normal / 7 fraud — 100% fraud rate)
-
-IF Amount_vs_AccountAvg <= 1.57 AND LoginAttempts <= 2.50 AND DeviceNoveltyFlag > 0.50
-   -> predict NORMAL  (n=1600: 1571 normal / 29 fraud — 1.8% fraud rate)
-
-IF Amount_vs_AccountAvg <= 1.57 AND LoginAttempts > 2.50 AND AccountBalance <= 7793.22
-   -> predict FRAUD   (n=49: 31 normal / 18 fraud — 36.7% fraud rate, raw-minority but
-                        weighted-majority due to class_weight="balanced")
-
-IF Amount_vs_AccountAvg <= 1.57 AND LoginAttempts > 2.50 AND AccountBalance > 7793.22
-   -> predict NORMAL  (n=20: 19 normal / 1 fraud — 5.0% fraud rate)
-
-IF Amount_vs_AccountAvg > 1.57 AND Amount_vs_AccountAvg <= 8.06 AND TransactionAmount <= 823.88
-   -> predict NORMAL  (n=184: 178 normal / 6 fraud — 3.3% fraud rate)
-
-IF Amount_vs_AccountAvg > 1.57 AND Amount_vs_AccountAvg <= 8.06 AND TransactionAmount > 823.88
-   -> predict FRAUD   (n=95: 74 normal / 21 fraud — 22.1% fraud rate, raw-minority but
-                        weighted-majority due to class_weight="balanced")
-
-IF Amount_vs_AccountAvg > 8.06 AND CustomerAge <= 22.50
-   -> predict NORMAL  (n=5: 5 normal / 0 fraud — 0.0% fraud rate)
-
-IF Amount_vs_AccountAvg > 8.06 AND CustomerAge > 22.50
-   -> predict FRAUD   (n=49: 22 normal / 27 fraud — 55.1% fraud rate)
+|--- TransactionAmount <= 812.07
+|   |--- LoginAttempts <= 2.50
+|   |   |--- Amount_vs_AccountAvg <= 19.71  -> class: Normal
+|   |   |--- Amount_vs_AccountAvg >  19.71  -> class: Fraud
+|   |--- LoginAttempts >  2.50
+|   |   |--- TransactionAmount <= 79.79     -> class: Normal
+|   |   |--- TransactionAmount >  79.79     -> class: Fraud
+|--- TransactionAmount >  812.07
+|   |--- Amount_vs_AccountAvg <= 6.97
+|   |   |--- Amount_vs_AccountAvg <= 5.18   -> class: Fraud
+|   |   |--- Amount_vs_AccountAvg >  5.18   -> class: Normal
+|   |--- Amount_vs_AccountAvg >  6.97
+|   |   |--- TransactionDuration <= 43.50   -> class: Normal
+|   |   |--- TransactionDuration >  43.50   -> class: Fraud
 ```
 
-Plain-English summary for the slide: **large deviation from an account's own historical average amount is the dominant fraud signal**, with login attempts, device novelty, and customer age refining the call at the margins.
+Plain-English summary: **transaction size and how far it deviates from the account's own prior average** are the
+dominant split features, with login attempts and transaction duration refining the call at the margins — broadly
+consistent with the SHAP ranking above.
 
----
+### Cost-based decision threshold — selected on VALIDATION, applied once to TEST
 
-## Stage 6 — Robust Evaluation
+**Leakage fix:** the threshold is swept on the VAL fold only (never test), then applied unchanged to test exactly
+once. Illustrative costs (not real bank figures): false positive = $5 (customer friction), false negative = $250
+(uncaught fraud loss) — a 50:1 ratio.
 
-**Why accuracy is misleading:** a model that predicts "Normal" for every single transaction scores **94.63% accuracy** while catching zero fraud. The actual trained model scores 93.84% accuracy — *lower* than the naive baseline — because it's spending some of its correctness budget on catching real fraud cases the naive model ignores entirely. Accuracy alone would make the naive model look better; it isn't.
+- VAL cost at default threshold 0.50: $7,545
+- **Minimum VAL cost $1,450 at threshold 0.01** ("review" threshold)
+- Block threshold (high-precision cutoff, also selected on VAL): 0.97
 
-| Metric | Value |
-|---|---|
-| Precision | 0.441 |
-| Recall | 0.556 |
-| F1-score | 0.492 |
-| ROC-AUC | 0.943 |
-| PR-AUC | 0.593 |
+**Honest finding, not smoothed over:** a 0.01 review threshold is a genuinely degenerate result for daily
+operations — it flags 90% of test transactions for review. It is nonetheless the *mathematically* cost-minimizing
+threshold under the stated $5/$250 ratio: because the model's real, leakage-free probability separation is modest
+(PR-AUC 0.56), the sweep finds that catching one more $250 loss is worth risking many more $5-friction false
+positives, all the way down to a very low cutoff. Under the old, leakage-inflated pipeline, this same sweep landed
+on a much more "reasonable-looking" 0.09 — that apparent reasonableness was itself an artifact of leakage
+(sharper, over-confident probabilities), not evidence of a well-calibrated threshold. See `LIMITATIONS.md` and
+`ML_AUDIT_AFTER_FIX.md` for what this implies for a real deployment (bank-supplied real costs, and/or a
+review-capacity constraint on top of pure cost minimization, are both necessary next steps).
 
-**Confusion matrix** (test set, threshold 0.5):
+**Final TEST-set outcome, threshold=0.5 vs. VAL-selected threshold 0.01:**
 
-| | Predicted Normal | Predicted Fraud |
-|---|---|---|
-| **Actual Normal** | 457 (TN) | 19 (FP) |
-| **Actual Fraud** | 12 (FN) | 15 (TP) |
+| Threshold | Accuracy | Precision | Recall | F1 |
+|---|---|---|---|---|
+| 0.50 (default) | 0.891 | 0.767 | 0.324 | 0.455 |
+| 0.01 (VAL-selected, cost-optimal) | 0.239 | 0.156 | 1.000 | 0.270 |
 
-### Cost-based threshold framing
+ROC-AUC = 0.831, PR-AUC = 0.558 (threshold-independent).
 
-Illustrative costs (not real bank figures): false positive = $5 (customer friction from wrongly blocking a legitimate transaction), false negative = $250 (an uncaught fraud loss).
-
-- Total cost at the default 0.5 threshold: **$3,095**
-- Minimum cost **$900** at threshold **0.09**
-
-Lowering the threshold catches more fraud at the cost of more false positives — with a 50:1 cost ratio between missing fraud and annoying a legitimate customer, the math strongly favors a much lower threshold than the default 0.5. This 0.09 threshold (labeled "review") and a separate high-precision 0.94 threshold (labeled "block") drive the Streamlit demo's tiering.
+Final Approve/Review/Block counts on the 503-row test fold, using the VAL-selected thresholds:
+**APPROVE: 49, REVIEW: 451, BLOCK: 3.**
 
 ---
 
 ## Stage 7 — Streamlit Demo
 
-`app_streamlit.py` takes one transaction's details, engineers its features with the same `fe_utils.transform_new()` logic used in training (so training-time and live-scoring feature engineering can't drift apart), scores it with the Stage 5 XGBoost model, and maps probability to a tier:
+`app_streamlit.py` takes one transaction's details, engineers its features with the same `fe_utils.transform_new()`
+logic used in training (so training-time and live-scoring feature engineering can't drift apart), scores it with
+the Stage 6-selected primary XGBoost model (`artifacts/xgb_model_best.json`), and maps probability to a tier using
+the VAL-selected thresholds above. Shows the top 3 SHAP-attributed features for that specific prediction. Verified
+directly (bypassing the UI) for both an existing account with history and a brand-new account with none — both
+score sensibly (a repeat transaction on a known device/account scored far lower than the same amount on a
+brand-new account/device in a spot check).
 
-- `< 9%` → **Auto-approve**
-- `9%–94%` → **Manual review**
-- `≥ 94%` → **Block**
-
-Shows the top 3 SHAP-attributed features for that specific prediction. Verified directly (bypassing the UI) for both an existing account with history and a brand-new account with none — both score sensibly.
+The "Search Identifier History" tab joins `labeled.csv` back to the raw rows by `TransactionID` (not row position —
+see `ML_AUDIT_AFTER_FIX.md` for why the old positional join broke once the split became chronological-then-grouped
+rather than one global sort).
 
 ---
 
 ## Stage 8 — Limitations
 
-See `LIMITATIONS.md` for the 4 slide-ready caveats: no ground-truth label exists (the label is the anomaly ensemble's own judgment, not verified fraud); this dataset is far smaller than the 1M rows the brief describes; the label is circular by construction (same features engineer → detect → train, so strong SHAP attribution confirms internal consistency, not real-world causality); and what would need to happen before production deployment (validate against real investigator-labeled cases, re-tune the 5% contamination assumption, re-run the cost sweep with the bank's actual figures).
+See `LIMITATIONS.md` for the full, slide-ready caveats, and `ML_AUDIT_AFTER_FIX.md` for the complete leakage audit,
+exactly what was fixed, and the reproducibility details.

@@ -22,6 +22,9 @@ import config
 votes = pd.read_csv(config.ANOMALY_VOTES_CSV)
 features = pd.read_csv(config.FEATURES_CSV)
 
+assert (votes["split"].values == features["split"].values).all(), \
+    "votes and features rows must be in the same train/val/test row order"
+
 
 def tier(v):
     if v >= 3:
@@ -36,12 +39,18 @@ votes["is_fraud"] = votes["risk_tier"].isin(
     ["High confidence fraud", "Medium confidence / needs review"]
 ).astype(int)
 
-labeled = pd.concat([features, votes[["vote_count", "risk_tier", "is_fraud"]]], axis=1)
+labeled = pd.concat(
+    [features, votes[["vote_count", "risk_tier", "is_fraud"]]], axis=1
+)
 
-print("3-tier distribution:")
+print("3-tier distribution (all folds):")
 print(labeled["risk_tier"].value_counts())
-print(f"\nBinary label distribution (is_fraud): {labeled['is_fraud'].value_counts().to_dict()}")
-print(f"Fraud prevalence: {labeled['is_fraud'].mean()*100:.2f}%")
+print(f"\nBinary label distribution (is_fraud, all folds): {labeled['is_fraud'].value_counts().to_dict()}")
+print(f"Fraud prevalence (all folds): {labeled['is_fraud'].mean()*100:.2f}%")
+for fold in ["train", "val", "test"]:
+    sub = labeled[labeled["split"] == fold]
+    print(f"  {fold:5s}: {sub['is_fraud'].sum()} fraud / {len(sub)} rows "
+          f"({sub['is_fraud'].mean()*100:.2f}%)")
 
 labeled.to_csv(config.LABELED_CSV, index=False)
 print(f"\nSaved {config.LABELED_CSV}")

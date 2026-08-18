@@ -10,6 +10,7 @@ python 01_feature_engineering.py
 python 02_anomaly_ensemble.py
 python 03_confidence_labeling.py
 python 04_balancing.py
+python 04b_cross_validation.py   # robust CV baseline, train fold only, before any fine-tuning
 python 05_train_model.py
 python 06_evaluation.py
 streamlit run app_streamlit.py
@@ -21,4 +22,7 @@ its own — you can re-run any single stage without repeating earlier ones.
 Streamlit app, so training-time and live-scoring feature engineering can
 never drift apart.
 
-See `LIMITATIONS.md` for the honest caveats to state alongside the results.
+See `LIMITATIONS.md` for the honest caveats to state alongside the results,
+`ML_AUDIT_AFTER_FIX.md` for the data-leakage audit and fix methodology, and
+`PRESENTATION_MODEL_SUMMARY.md` for a judge-facing summary of the approach
+and results.

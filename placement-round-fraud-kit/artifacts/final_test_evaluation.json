@@ -1,0 +1,25 @@
+{
+  "primary_model": "XGBoost + Class Weighting",
+  "test_size": 503,
+  "test_fraud_proxy_count": 71,
+  "threshold_default_0.5": {
+    "accuracy": 0.8906560636182903,
+    "precision": 0.7666666666666667,
+    "recall": 0.323943661971831,
+    "f1": 0.45544554455445546
+  },
+  "threshold_val_selected": {
+    "value": 0.01,
+    "accuracy": 0.23856858846918488,
+    "precision": 0.15638766519823788,
+    "recall": 1.0,
+    "f1": 0.2704761904761905
+  },
+  "roc_auc": 0.8305946791862285,
+  "pr_auc": 0.5576702256008699,
+  "decision_counts": {
+    "REVIEW": 451,
+    "APPROVE": 49,
+    "BLOCK": 3
+  }
+}

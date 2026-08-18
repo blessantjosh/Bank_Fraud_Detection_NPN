@@ -20,11 +20,29 @@ SPLIT_PKL = os.path.join(ARTIFACTS_DIR, "split.pkl")
 
 MODEL_JSON = os.path.join(ARTIFACTS_DIR, "xgb_model.json")
 MODEL_NOSMOTE_JSON = os.path.join(ARTIFACTS_DIR, "xgb_model_classweight.json")
+BEST_MODEL_JSON = os.path.join(ARTIFACTS_DIR, "xgb_model_best.json")
+RF_MODEL_PKL = os.path.join(ARTIFACTS_DIR, "random_forest_model.pkl")
+BEST_MODEL_CHOICE_JSON = os.path.join(ARTIFACTS_DIR, "best_model_choice.json")
 DT_RULES_TXT = os.path.join(ARTIFACTS_DIR, "decision_tree_rules.txt")
 DT_MODEL_PKL = os.path.join(ARTIFACTS_DIR, "decision_tree.pkl")
 THRESHOLDS_JSON = os.path.join(ARTIFACTS_DIR, "thresholds.json")
+MODEL_COMPARISON_CSV = os.path.join(ARTIFACTS_DIR, "model_comparison.csv")
+MODEL_COMPARISON_JSON = os.path.join(ARTIFACTS_DIR, "model_comparison.json")
+
+CV_PER_FOLD_CSV = os.path.join(ARTIFACTS_DIR, "cv_per_fold.csv")
+CV_SUMMARY_CSV = os.path.join(ARTIFACTS_DIR, "cv_summary.csv")
+CV_SUMMARY_JSON = os.path.join(ARTIFACTS_DIR, "cv_summary.json")
+CV_N_SPLITS = 5
 
 RANDOM_STATE = 42
+
+# Chronological split boundaries, expressed as quantiles of TransactionDate
+# over the full raw dataset. TRAIN = earliest ~64%, VAL = next ~16% (used
+# only for model comparison / cost-threshold selection, never for the final
+# reported test metrics), TEST = latest ~20% (touched exactly once, at the
+# very end, for the numbers reported as the unbiased estimate).
+TRAIN_QUANTILE = 0.64
+VAL_QUANTILE = 0.80
 
 # Assumed fraud prevalence used to set contamination for the unsupervised
 # detectors. No ground truth exists, so this is a documented assumption
