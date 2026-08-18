@@ -9,6 +9,7 @@ const NAV_META = {
   queue: { label: "Investigation Queue", icon: "queue", title: "Investigation Queue", subtitle: "Highest-risk transactions, sorted for triage" },
   comparison: { label: "Model Comparison", icon: "comparison", title: "Model Comparison", subtitle: "Twelve unsupervised models on one shared feature matrix" },
   explainability: { label: "Explainability", icon: "explainability", title: "Explainability", subtitle: "Two structurally different views of why a transaction scores high" },
+  upload: { label: "Upload & Predict", icon: "upload", title: "Upload & Predict", subtitle: "Score a new CSV batch against the leakage-fixed XGBoost v1 pipeline" },
   simulator: { label: "Scenario Simulator", icon: "simulator", title: "Account Scenario Simulator", subtitle: "Secondary tool -- vary one real account's transaction" },
 };
 
@@ -545,6 +546,55 @@ function renderSimCharts(r) {
 }
 
 // ---------------------------------------------------------------------
+// upload & predict
+// ---------------------------------------------------------------------
+function uploadRowHtml(r) {
+  const highRisk = r.fraud_percentage >= 70;
+  const pctStyle = highRisk ? ` style="color:var(--status-critical);font-weight:600"` : "";
+  return `<tr>
+    <td>${Fmt.escapeHtml(r.transaction_id)}</td>
+    <td>${Fmt.escapeHtml(r.account_id)}</td>
+    <td>${Fmt.escapeHtml(r.date)}</td>
+    <td class="num tabular">${Fmt.money(r.amount)}</td>
+    <td class="num tabular"${pctStyle}>${r.fraud_percentage.toFixed(2)}%</td>
+  </tr>`;
+}
+
+function wireUploadForm() {
+  document.getElementById("upload-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("upload-file-input");
+    const file = input.files && input.files[0];
+    const statusEl = document.getElementById("upload-status");
+    const btn = document.getElementById("upload-predict-btn");
+    const resultsCard = document.getElementById("upload-results-card");
+    if (!file) {
+      statusEl.textContent = "Choose a CSV file first.";
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = "Predicting…";
+    statusEl.textContent = `Scoring ${Fmt.escapeHtml(file.name)}…`;
+    resultsCard.style.display = "none";
+    try {
+      const resp = await Api.uploadPredict(file);
+      statusEl.textContent = `Scored ${Fmt.int(resp.total)} transactions with ${Fmt.escapeHtml(resp.model)}.`;
+      document.getElementById("upload-results-subtitle").textContent =
+        `${Fmt.int(resp.total)} transactions — model: ${resp.model}. Rows at or above 70% are highlighted.`;
+      document.querySelector("#table-upload-results tbody").innerHTML =
+        resp.results.map(uploadRowHtml).join("") || emptyRow(5);
+      resultsCard.style.display = "block";
+    } catch (err) {
+      statusEl.textContent = "";
+      showToast(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Predict";
+    }
+  });
+}
+
+// ---------------------------------------------------------------------
 // detail drawer
 // ---------------------------------------------------------------------
 function modelChip(m) {
@@ -701,6 +751,7 @@ document.addEventListener("DOMContentLoaded", () => {
   wireExplorerControls();
   wireQueueControls();
   wireSimulatorForm();
+  wireUploadForm();
   wireDrawer();
   showPage("overview");
   window.addEventListener("resize", Fmt.debounce(rerenderCurrentPageCharts, 200));

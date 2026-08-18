@@ -202,16 +202,13 @@ def build_account_history(df):
     return account_history
 
 
-def transform_new(txn, reference):
+def _engineer_new_row(txn, hist, stats):
     """
-    Engineer features for ONE new transaction dict (as collected from the
-    Streamlit form) using stats captured in `reference` (fit on the FULL
-    historical dataset -- see module docstring). txn keys mirror the raw CSV
-    columns (TransactionAmount, TransactionType, Location, DeviceID,
-    'IP Address', MerchantID, Channel, CustomerAge, CustomerOccupation,
-    TransactionDuration, LoginAttempts, AccountBalance, AccountID, TransactionDate).
+    Shared per-transaction feature logic for both transform_new (single row,
+    Streamlit form) and transform_batch_new (many rows, CSV upload). `hist`
+    is either None (no known prior history for this account) or an
+    account_history-shaped dict (devices/locations/last_time/running_mean_amount).
     """
-    stats = reference["stats"]
     type_avg = stats["type_avg"].get(txn["TransactionType"], stats["global_amount_mean"])
     amt = txn["TransactionAmount"]
     row = {
@@ -230,7 +227,6 @@ def transform_new(txn, reference):
         "CustomerOccupation": txn["CustomerOccupation"],
     }
 
-    hist = reference["account_history"].get(txn["AccountID"])
     if hist is None:
         # brand-new account: no prior history to compare against
         row["Amount_vs_AccountAvg"] = row["Amount_vs_TypeAvg"]
@@ -245,7 +241,79 @@ def transform_new(txn, reference):
         gap = (txn["TransactionDate"] - hist["last_time"]).total_seconds() / 3600.0
         row["TimeSinceLastTxn"] = max(gap, 0.0)
 
+    return row
+
+
+def transform_new(txn, reference):
+    """
+    Engineer features for ONE new transaction dict (as collected from the
+    Streamlit form) using stats captured in `reference` (fit on the FULL
+    historical dataset -- see module docstring). txn keys mirror the raw CSV
+    columns (TransactionAmount, TransactionType, Location, DeviceID,
+    'IP Address', MerchantID, Channel, CustomerAge, CustomerOccupation,
+    TransactionDuration, LoginAttempts, AccountBalance, AccountID, TransactionDate).
+    """
+    stats = reference["stats"]
+    hist = reference["account_history"].get(txn["AccountID"])
+    row = _engineer_new_row(txn, hist, stats)
+
     single_df = pd.DataFrame([row])
     single_df, _ = _encode_categoricals(single_df, encoders=reference["encoders"])
     single_df = single_df.reindex(columns=reference["feature_cols"], fill_value=0)
     return single_df
+
+
+def transform_batch_new(df, reference):
+    """
+    Engineer features for a CSV upload of possibly-many new transactions
+    (the dashboard's "Upload & Detect" feature). Same leakage-safe contract
+    as transform_new: every global lookup comes from `reference["stats"]`
+    (fit at training time, never from this upload), and every per-account
+    behavioral feature only ever looks at STRICTLY EARLIER rows of the same
+    account -- prior rows already in `reference["account_history"]`, plus
+    any earlier rows of that same account already seen earlier in this same
+    upload (processed in chronological order), never a later row and never
+    the row's own value.
+
+    df columns mirror the raw CSV schema: TransactionID, AccountID,
+    TransactionAmount, TransactionDate, TransactionType, Location, DeviceID,
+    'IP Address', MerchantID, Channel, CustomerAge, CustomerOccupation,
+    TransactionDuration, LoginAttempts, AccountBalance. Returns a feature
+    dataframe with the same row order as the (chronologically re-sorted)
+    input, plus the sort order actually used so callers can re-align results
+    back to the original upload order if needed.
+    """
+    stats = reference["stats"]
+    df = df.sort_values(["AccountID", "TransactionDate"], kind="stable").reset_index()
+    orig_index = df["index"]  # position in the caller's original dataframe
+    df = df.drop(columns=["index"])
+
+    running_history = {}  # this upload's own running state, seeded lazily from reference
+    rows = []
+    for _, txn in df.iterrows():
+        acc = txn["AccountID"]
+        hist = running_history.get(acc, reference["account_history"].get(acc))
+        rows.append(_engineer_new_row(txn, hist, stats))
+
+        amt = txn["TransactionAmount"]
+        prev_n = hist["n"] if hist else 0
+        prev_mean = hist["running_mean_amount"] if hist else amt
+        new_n = prev_n + 1
+        new_mean = prev_mean + (amt - prev_mean) / new_n
+        devices = set(hist["devices"]) if hist else set()
+        devices.add(txn["DeviceID"])
+        locations = set(hist["locations"]) if hist else set()
+        locations.add(txn["Location"])
+        running_history[acc] = {
+            "devices": devices,
+            "locations": locations,
+            "last_time": txn["TransactionDate"],
+            "running_mean_amount": new_mean,
+            "n": new_n,
+        }
+
+    feat_df = pd.DataFrame(rows)
+    feat_df, _ = _encode_categoricals(feat_df, encoders=reference["encoders"])
+    feat_df = feat_df.reindex(columns=reference["feature_cols"], fill_value=0)
+    feat_df.index = orig_index.values
+    return feat_df.sort_index()

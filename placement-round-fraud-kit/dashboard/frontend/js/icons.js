@@ -29,6 +29,7 @@ const Icons = (() => {
     serious: wrap('<circle cx="12" cy="12" r="9.5"/><path d="M12 7.5v5.5"/><path d="M12 16.3h.01"/>', 15),
     critical: wrap('<circle cx="12" cy="12" r="9.5"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/>', 15),
     flask: wrap('<path d="M9 3h6M10 3v6.2L4.8 18a1.6 1.6 0 0 0 1.4 2.4h11.6a1.6 1.6 0 0 0 1.4-2.4L14 9.2V3"/>'),
+    upload: wrap('<path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16"/>'),
     caretUp: wrap('<path d="M6 15l6-6 6 6"/>', 12),
     caretDown: wrap('<path d="M6 9l6 6 6-6"/>', 12),
   };

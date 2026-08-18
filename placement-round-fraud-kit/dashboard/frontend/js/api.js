@@ -28,6 +28,15 @@ const Api = (() => {
     return res.json();
   }
 
+  async function postForm(path, formData) {
+    const res = await fetch(path, { method: "POST", body: formData });
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({}));
+      throw new Error(b.detail || `Request failed: ${res.status}`);
+    }
+    return res.json();
+  }
+
   return {
     kpis: () => get("/api/kpis"),
     transactions: (params) => get("/api/transactions", params),
@@ -40,6 +49,11 @@ const Api = (() => {
     simulatorAccount: (id) => get(`/api/simulator/account/${encodeURIComponent(id)}`),
     score: (payload) => post("/api/score", payload),
     meta: () => get("/api/meta"),
+    uploadPredict: (file) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return postForm("/api/upload/predict", formData);
+    },
     queueExportUrl: () => "/api/queue/export",
   };
 })();

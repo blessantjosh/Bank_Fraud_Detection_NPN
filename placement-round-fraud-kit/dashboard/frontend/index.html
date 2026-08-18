@@ -24,6 +24,7 @@
       <button class="nav-item" data-page="queue"></button>
       <button class="nav-item" data-page="comparison"></button>
       <button class="nav-item" data-page="explainability"></button>
+      <button class="nav-item" data-page="upload"></button>
     </nav>
     <div class="nav-section-label">Secondary tool</div>
     <nav class="nav">
@@ -319,6 +320,30 @@
             </table></div>
             <p class="card-subtitle section-gap" id="stat-finding"></p>
           </div>
+        </div>
+      </section>
+
+      <!-- ================= UPLOAD & PREDICT ================= -->
+      <section class="page" id="page-upload">
+        <div class="card">
+          <p class="card-title">Score a new batch of transactions</p>
+          <p class="card-subtitle">Upload a CSV of up to 5,000 transactions to score against the leakage-fixed XGBoost v1 pipeline. Required columns: TransactionID, AccountID, TransactionAmount, TransactionDate, TransactionType, Location, DeviceID, IP Address, MerchantID, Channel, CustomerAge, CustomerOccupation, TransactionDuration, LoginAttempts, AccountBalance.</p>
+          <form id="upload-form" class="filter-bar" style="margin-bottom:0">
+            <input class="input" type="file" id="upload-file-input" accept=".csv" required />
+            <button class="btn btn-primary" type="submit" id="upload-predict-btn">Predict</button>
+          </form>
+          <p class="card-subtitle section-gap" id="upload-status"></p>
+        </div>
+
+        <div class="card section-gap" id="upload-results-card" style="display:none">
+          <p class="card-title">Results</p>
+          <p class="card-subtitle" id="upload-results-subtitle"></p>
+          <div class="table-wrap"><table class="data-table" id="table-upload-results">
+            <thead><tr>
+              <th>Transaction ID</th><th>Account ID</th><th>Date</th><th class="num">Amount</th><th class="num">Fraud %</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table></div>
         </div>
       </section>
 

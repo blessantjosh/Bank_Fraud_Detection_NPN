@@ -48,7 +48,7 @@ from typing import List, Literal, Optional
 import joblib
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -58,6 +58,7 @@ BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 DASHBOARD_DIR = os.path.dirname(BACKEND_DIR)
 PROJECT_ROOT = os.path.dirname(DASHBOARD_DIR)
 SRC_V2_DIR = os.path.join(PROJECT_ROOT, "src_research_v2")
+SRC_V1_DIR = os.path.join(PROJECT_ROOT, "src")
 FRONTEND_DIR = os.path.join(DASHBOARD_DIR, "frontend")
 CACHE_DIR = os.path.join(BACKEND_DIR, "cache")
 QUEUE_STATE_PATH = os.path.join(BACKEND_DIR, "queue_state.json")
@@ -72,6 +73,29 @@ sys.path.insert(0, SRC_V2_DIR)
 
 from autoencoder_utils import load_autoencoder, reconstruction_errors  # noqa: E402
 from config_research_v2 import FEATURE_COLS_V2, ID_COLS  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Upload & Predict -- the ONE addition in this file. Uses the separate,
+# leakage-fixed v1 pipeline (../src/) because it has a real trained
+# classifier + saved feature-engineering reference, which is what scoring a
+# freshly-uploaded CSV of new transactions needs. Nothing above this comment
+# or below the route itself was changed.
+# ---------------------------------------------------------------------------
+sys.path.insert(0, SRC_V1_DIR)
+import config as v1_config  # noqa: E402
+import fe_utils as v1_fe  # noqa: E402
+from xgboost import XGBClassifier as _XGBClassifier  # noqa: E402
+
+V1_REFERENCE = joblib.load(v1_config.REFERENCE_PKL)
+V1_MODEL = _XGBClassifier()
+V1_MODEL.load_model(v1_config.BEST_MODEL_JSON)
+
+UPLOAD_REQUIRED_COLS = [
+    "TransactionID", "AccountID", "TransactionAmount", "TransactionDate", "TransactionType",
+    "Location", "DeviceID", "IP Address", "MerchantID", "Channel", "CustomerAge",
+    "CustomerOccupation", "TransactionDuration", "LoginAttempts", "AccountBalance",
+]
+UPLOAD_MAX_ROWS = 5000
 
 # ---------------------------------------------------------------------------
 # labels
@@ -1057,6 +1081,69 @@ def meta():
             "No automatic block tier exists. A cost-optimal block threshold requires counting false "
             "negatives, which requires a fraud label this dataset does not have (Phase 13 v2)."
         ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Upload & Predict -- the ONE new route. Everything else in this file is
+# unchanged from before this feature was added.
+# ---------------------------------------------------------------------------
+@app.post("/api/upload/predict")
+async def upload_predict(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please upload a .csv file.")
+    raw_bytes = await file.read()
+    try:
+        df = pd.read_csv(io.BytesIO(raw_bytes))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not parse this file as CSV: {e}")
+
+    if len(df) == 0:
+        raise HTTPException(status_code=400, detail="The uploaded CSV has no rows.")
+    if len(df) > UPLOAD_MAX_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This tool scores up to {UPLOAD_MAX_ROWS:,} rows at a time; the uploaded file has {len(df):,}.",
+        )
+    missing = [c for c in UPLOAD_REQUIRED_COLS if c not in df.columns]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"CSV is missing required column(s): {', '.join(missing)}.",
+        )
+
+    df_work = df.copy()
+    try:
+        df_work["TransactionDate"] = pd.to_datetime(df_work["TransactionDate"], format="%d-%m-%Y %H:%M")
+    except (ValueError, TypeError):
+        try:
+            df_work["TransactionDate"] = pd.to_datetime(df_work["TransactionDate"])
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Could not parse TransactionDate values: {e}")
+    if "PreviousTransactionDate" in df_work.columns:
+        df_work = df_work.drop(columns=["PreviousTransactionDate"])
+
+    try:
+        feat_df = v1_fe.transform_batch_new(df_work, V1_REFERENCE)
+        proba = V1_MODEL.predict_proba(feat_df)[:, 1]
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"CSV is missing a value the model needs: {e}")
+
+    results = []
+    for i in range(len(df)):
+        orig = df.iloc[i]
+        results.append({
+            "transaction_id": str(orig.get("TransactionID", f"row_{i}")),
+            "account_id": str(orig.get("AccountID", "")),
+            "date": str(orig.get("TransactionDate", "")),
+            "amount": round(float(orig.get("TransactionAmount", 0.0)), 2),
+            "fraud_percentage": round(float(proba[i]) * 100, 2),
+        })
+
+    return {
+        "total": len(results),
+        "model": "XGBoost (leakage-fixed v1 pipeline)",
+        "results": results,
     }
 
 

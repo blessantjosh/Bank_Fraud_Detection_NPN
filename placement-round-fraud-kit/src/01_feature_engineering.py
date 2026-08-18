@@ -95,11 +95,24 @@ features.to_csv(config.FEATURES_CSV, index=False)
 features_scaled.to_csv(config.FEATURES_SCALED_CSV, index=False)
 joblib.dump(scaler, config.SCALER_PKL)
 
-# ---- production reference: fit on the FULL dataset (see module docstring) ----
-full_stats = fe.fit_global_stats(df)
+# ---- production reference ----
+# IMPORTANT: `stats` (type_avg / device_counts / ip_counts / merchant_counts /
+# median_gap_hours) must be the SAME train-fit dict used to build the model's
+# training features, NOT a full-dataset refit. Refitting these on the full
+# dataset silently breaks inference: full-dataset device/IP/merchant counts
+# run ~1.5-2x higher than train-fold counts (more rows contribute to each
+# count), so a genuinely new transaction would get count *features* on a
+# different scale than the one the model's tree splits were calibrated
+# against -- verified empirically to push predicted P(fraud) for almost
+# every ordinary transaction above 0.6 (mean 0.96 replaying the full raw
+# dataset through this path), a silent miscalibration bug, not a real
+# fraud signal. `account_history` is fine to build from the FULL dataset
+# (train+val+test): it is a per-account snapshot of real state, not a
+# population-scale statistic, so it correctly reflects "everything known
+# about this account so far" for a genuinely new incoming transaction.
 full_account_history = fe.build_account_history(df)
 reference = {
-    "stats": full_stats,
+    "stats": stats,                # TRAIN-fit stats -- same scale the model was trained on
     "account_history": full_account_history,
     "encoders": encoders,          # keep the TRAIN-fit encoders so the model's input schema matches exactly what it was trained on
     "feature_cols": feature_cols,  # exact column order the shipped model expects
