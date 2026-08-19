@@ -220,9 +220,11 @@ quantile of `TransactionDate`, not a random draw). Re-running `01` through `06` 
     account with history and a brand-new account/device with none; both scored sensibly (existing-account repeat
     transaction: P(fraud)=0.961 at an out-of-pattern amount; brand-new account/device, ordinary amount:
     P(fraud)=0.034). ✅
-12. Existing UI/API continues to work — `app_streamlit.py` boots and serves HTTP 200 under
-    `streamlit run` (verified headless); the identifier-search join was fixed to use `TransactionID` (§ below)
-    since row order changed once the split became chronological-then-grouped rather than one global sort. ✅
+12. Existing UI/API continued to work at the time of this audit — the then-existing demo app booted and served
+    HTTP 200 (verified headless); its identifier-search join was fixed to use `TransactionID` (§ below) since row
+    order changed once the split became chronological-then-grouped rather than one global sort. That demo app has
+    since been removed; live scoring is now served from the Argus dashboard's "Upload & Predict" page instead,
+    reusing the same `fe_utils.transform_new`/`transform_batch_new` functions this fix produced. ✅
 13. Model comparison is generated — `artifacts/model_comparison.csv/json`, `artifacts/plots/model_comparison.png`.
     ✅
 14. All metrics are generated from the actual leakage-free test set — every number in §9/§11 was printed by an
@@ -230,7 +232,7 @@ quantile of `TransactionDate`, not a random draw). Re-running `01` through `06` 
 
 ### One additional bug found and fixed during verification (not in the original leakage list, but load-bearing)
 
-`app_streamlit.py`'s "Search Identifier History" tab joined `labeled.csv` to the raw dataset by **row position**
+The then-existing demo app's "Search Identifier History" tab joined `labeled.csv` to the raw dataset by **row position**
 (`pd.concat(..., axis=1)`), relying on both being sorted identically. Once Stage 1 started grouping rows by
 `split` (train rows first, then val, then test) rather than one global chronological sort, that positional
 assumption silently broke — every row would have been paired with the wrong transaction's tier. Fixed by carrying

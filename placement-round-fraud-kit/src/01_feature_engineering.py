@@ -24,12 +24,12 @@ val and test. Nothing about val or test rows contributes to any of these
 fitted statistics.
 
 Also persists reference.pkl (full-dataset account history + lookup stats) so
-the Streamlit demo can engineer a brand-new transaction's features the same
-way training data was engineered. reference.pkl intentionally uses the FULL
-dataset (train+val+test) because, by the time a new transaction arrives in
-the demo, all of history to date is legitimately known -- this is a separate
-artifact from the train-only stats used to build the features above, and
-does not affect evaluation.
+live scoring (the Argus dashboard's "Upload & Predict" page) can engineer a
+brand-new transaction's features the same way training data was engineered.
+reference.pkl intentionally uses the FULL dataset (train+val+test) because,
+by the time a new transaction arrives live, all of history to date is
+legitimately known -- this is a separate artifact from the train-only stats
+used to build the features above, and does not affect evaluation.
 """
 import joblib
 import pandas as pd

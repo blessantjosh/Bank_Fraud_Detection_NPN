@@ -1,9 +1,9 @@
 """
 Shared feature-engineering logic for the fraud-detection pipeline.
 
-Used by 01_feature_engineering.py (batch, at training time) and
-app_streamlit.py (single transaction, at inference time) so the two never
-drift apart.
+Used by 01_feature_engineering.py (batch, at training time) and the Argus
+dashboard's "Upload & Predict" page (single/batch transactions, at inference
+time, via dashboard/backend/api_server.py) so the two never drift apart.
 
 LEAKAGE-SAFE DESIGN (see ML_AUDIT_AFTER_FIX.md for the full writeup):
 
@@ -30,12 +30,13 @@ LEAKAGE-SAFE DESIGN (see ML_AUDIT_AFTER_FIX.md for the full writeup):
       categoricals. Pass encoders=None to FIT (training fold only); pass the
       fitted dict back in to transform any other fold/row identically.
 
-reference.pkl (used by app_streamlit.py for brand-new transactions) is built
-from the FULL dataset via fit_global_stats/build_account_history -- this is
-intentional and does not leak into evaluation: by the time a genuinely new
-transaction arrives in the demo, all 2,512 historical rows really are past
-data. It is a separate artifact from the train-only stats used to build the
-leakage-free train/val/test feature matrices.
+reference.pkl (used by the Argus dashboard's "Upload & Predict" page for
+brand-new transactions) is built from the FULL dataset via
+fit_global_stats/build_account_history -- this is intentional and does not
+leak into evaluation: by the time a genuinely new transaction arrives live,
+all 2,512 historical rows really are past data. It is a separate artifact
+from the train-only stats used to build the leakage-free train/val/test
+feature matrices.
 """
 import numpy as np
 import pandas as pd
@@ -204,8 +205,8 @@ def build_account_history(df):
 
 def _engineer_new_row(txn, hist, stats):
     """
-    Shared per-transaction feature logic for both transform_new (single row,
-    Streamlit form) and transform_batch_new (many rows, CSV upload). `hist`
+    Shared per-transaction feature logic for both transform_new (single row)
+    and transform_batch_new (many rows, CSV upload). `hist`
     is either None (no known prior history for this account) or an
     account_history-shaped dict (devices/locations/last_time/running_mean_amount).
     """
@@ -246,8 +247,8 @@ def _engineer_new_row(txn, hist, stats):
 
 def transform_new(txn, reference):
     """
-    Engineer features for ONE new transaction dict (as collected from the
-    Streamlit form) using stats captured in `reference` (fit on the FULL
+    Engineer features for ONE new transaction dict (as collected by a live
+    scoring caller) using stats captured in `reference` (fit on the FULL
     historical dataset -- see module docstring). txn keys mirror the raw CSV
     columns (TransactionAmount, TransactionType, Location, DeviceID,
     'IP Address', MerchantID, Channel, CustomerAge, CustomerOccupation,

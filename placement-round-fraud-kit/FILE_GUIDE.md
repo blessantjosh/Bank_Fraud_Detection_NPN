@@ -30,13 +30,14 @@ Every file in this project, what it is, and why it's there. Dataset throughout: 
 
 A working, leakage-free pipeline: engineer features (train-only stats) → 4 unsupervised detectors, fit on train
 only, vote → confidence-tiered labels → train XGBoost (x2) + Random Forest on the train fold → compare all three →
-pick a cost-based threshold on validation → evaluate once on test → explain with SHAP → demo it. See
+pick a cost-based threshold on validation → evaluate once on test → explain with SHAP → serve live scoring from the
+Argus dashboard's "Upload & Predict" page (`dashboard/backend/api_server.py`, no standalone demo app). See
 `ML_AUDIT_AFTER_FIX.md` for the full before/after leakage audit.
 
 | File | What it is |
 |---|---|
 | `config.py` | Shared file paths and constants for the whole v1 pipeline (one place to edit, not per-script) |
-| `fe_utils.py` | The feature-engineering logic, split into fit-on-train / apply-to-any-fold steps — used both to build the training set AND to score one brand-new transaction live in the Streamlit app, so training and live-scoring never drift apart |
+| `fe_utils.py` | The feature-engineering logic, split into fit-on-train / apply-to-any-fold steps — used both to build the training set AND to score brand-new transactions live (single-row `transform_new`, batch-CSV `transform_batch_new`) from the Argus dashboard, so training and live-scoring never drift apart |
 | `01_feature_engineering.py` | Chronological train/val/test split, then builds the 20-feature matrix (every fitted statistic/encoder/scaler comes from the train fold only) |
 | `02_anomaly_ensemble.py` | Fits 4 unsupervised detectors (Isolation Forest, LOF via `novelty=True`, One-Class SVM, Elliptic Envelope) on the train fold only, then predicts out-of-sample on val/test |
 | `03_confidence_labeling.py` | Turns the vote count into High/Medium/Normal risk tiers and a binary fraud label, per fold |
@@ -44,7 +45,6 @@ pick a cost-based threshold on validation → evaluate once on test → explain 
 | `04b_cross_validation.py` | Robust 5-fold stratified CV on the training fold only, for all 3 models' baseline hyperparameters — run BEFORE any fine-tuning, so a future hyperparameter search has a variance-aware pre-tuning benchmark and a ready-made train-fold-only harness to plug into |
 | `05_train_model.py` | Trains XGBoost+SMOTE, XGBoost+class-weight, and Random Forest (new, for the model comparison), plus a small decision tree for explainability — all on the train fold only |
 | `06_evaluation.py` | Compares all 3 models on val + test, picks the primary XGBoost variant from measured test PR-AUC, sweeps the cost-based threshold on val only, applies it once to test, and runs SHAP on the selected model |
-| `app_streamlit.py` | The Streamlit demo — type in one transaction's details, get a fraud score; identifier-history search now joins by `TransactionID`, not row position |
 
 ---
 
@@ -63,7 +63,7 @@ pick a cost-based threshold on validation → evaluate once on test → explain 
 | `xgb_model.json` | XGBoost trained with SMOTE |
 | `xgb_model_classweight.json` | XGBoost trained with class-weighting (no synthetic data) |
 | `random_forest_model.pkl` | Random Forest (class_weight="balanced") — the new third model added for comparison |
-| `xgb_model_best.json` | Copy of whichever XGBoost variant Stage 6 measured as primary — this is what the Streamlit app loads |
+| `xgb_model_best.json` | Copy of whichever XGBoost variant Stage 6 measured as primary — this is what the Argus dashboard's "Upload & Predict" page loads |
 | `best_model_choice.json` | Which XGBoost variant was picked as primary, and the measured PR-AUC reasoning |
 | `model_comparison.csv` / `.json` | Precision/recall/F1/ROC-AUC/PR-AUC/FP/FN/TP/TN for all 3 models, on both val and test |
 | `final_test_evaluation.json` | The one-time final test-set numbers at both the default and VAL-selected thresholds, plus Approve/Review/Block counts |

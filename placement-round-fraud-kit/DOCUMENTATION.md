@@ -244,19 +244,19 @@ Final Approve/Review/Block counts on the 503-row test fold, using the VAL-select
 
 ---
 
-## Stage 7 — Streamlit Demo
+## Stage 7 — Live Scoring (Argus dashboard, "Upload & Predict")
 
-`app_streamlit.py` takes one transaction's details, engineers its features with the same `fe_utils.transform_new()`
-logic used in training (so training-time and live-scoring feature engineering can't drift apart), scores it with
-the Stage 6-selected primary XGBoost model (`artifacts/xgb_model_best.json`), and maps probability to a tier using
-the VAL-selected thresholds above. Shows the top 3 SHAP-attributed features for that specific prediction. Verified
-directly (bypassing the UI) for both an existing account with history and a brand-new account with none — both
-score sensibly (a repeat transaction on a known device/account scored far lower than the same amount on a
-brand-new account/device in a spot check).
+There is no standalone demo app for Pipeline 1 anymore — live scoring is served from the Argus dashboard
+(`dashboard/backend/api_server.py`, `POST /api/upload/predict`) instead. It engineers a batch of new transactions'
+features with `fe_utils.transform_batch_new()` — built on the same per-row logic as `transform_new()`, so
+training-time and live-scoring feature engineering can't drift apart — scores them with the Stage 6-selected
+primary XGBoost model (`artifacts/xgb_model_best.json`), and returns a fraud probability per row. Verified directly
+against both an existing account with history and a brand-new account with none — both score sensibly (a repeat
+transaction on a known device/account scored far lower than the same amount on a brand-new account/device in a
+spot check).
 
-The "Search Identifier History" tab joins `labeled.csv` back to the raw rows by `TransactionID` (not row position —
-see `ML_AUDIT_AFTER_FIX.md` for why the old positional join broke once the split became chronological-then-grouped
-rather than one global sort).
+See `dashboard/README.md` for the full dashboard, including the Transaction Explorer and Investigation Queue pages
+for browsing/searching individual transactions and accounts by identifier.
 
 ---
 
