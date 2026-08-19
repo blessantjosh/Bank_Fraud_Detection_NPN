@@ -381,8 +381,145 @@ const Charts = (() => {
     container.appendChild(svg);
   }
 
+  // -------------------------------------------------------------------
+  // scatter plot -- for outlier detection
+  // -------------------------------------------------------------------
+  function renderScatterPlot(container, opts) {
+    const { data, height = 400, xLabel, yLabel, colorBy = 'tier' } = opts;
+    container.innerHTML = "";
+    if (!data || data.length === 0) {
+      container.innerHTML = '<div class="empty-state">No data available for scatter plot</div>';
+      return;
+    }
+
+    const width = Math.max(container.clientWidth || 480, 480);
+    const pad = { top: 20, right: 20, bottom: 50, left: 60 };
+    const plotW = width - pad.left - pad.right;
+    const plotH = height - pad.top - pad.bottom;
+
+    const xs = data.map(d => d.x);
+    const ys = data.map(d => d.y);
+    const xMin = Math.min(...xs);
+    const xMax = Math.max(...xs);
+    const yMin = Math.min(...ys);
+    const yMax = Math.max(...ys);
+
+    const xRange = xMax - xMin || 1;
+    const yRange = yMax - yMin || 1;
+    const xPad = xRange * 0.05;
+    const yPad = yRange * 0.05;
+
+    const xScale = (x) => pad.left + ((x - xMin + xPad) / (xRange + 2 * xPad)) * plotW;
+    const yScale = (y) => pad.top + plotH - ((y - yMin + yPad) / (yRange + 2 * yPad)) * plotH;
+
+    const svg = el("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart-svg" });
+    const gridline = cssVar("--gridline");
+    const baseline = cssVar("--baseline");
+    const muted = cssVar("--text-muted");
+
+    // grid lines
+    const yTicks = 5;
+    for (let i = 0; i <= yTicks; i++) {
+      const val = yMin + (yRange / yTicks) * i;
+      const y = yScale(val);
+      svg.appendChild(el("line", {
+        x1: pad.left, x2: width - pad.right, y1: y, y2: y,
+        stroke: i === 0 ? baseline : gridline, "stroke-width": 1
+      }));
+      const t = el("text", { x: pad.left - 8, y: y + 3, "text-anchor": "end", fill: muted, "font-size": 10, class: "tabular" });
+      t.textContent = val.toFixed(2);
+      svg.appendChild(t);
+    }
+
+    const xTicks = 5;
+    for (let i = 0; i <= xTicks; i++) {
+      const val = xMin + (xRange / xTicks) * i;
+      const x = xScale(val);
+      svg.appendChild(el("line", {
+        x1: x, x2: x, y1: pad.top, y2: pad.top + plotH,
+        stroke: gridline, "stroke-width": 1
+      }));
+      const t = el("text", { x, y: height - pad.bottom + 18, "text-anchor": "middle", fill: muted, "font-size": 10 });
+      t.textContent = val.toFixed(2);
+      svg.appendChild(t);
+    }
+
+    // axis labels
+    const xLabelEl = el("text", {
+      x: pad.left + plotW / 2, y: height - 10, "text-anchor": "middle",
+      fill: cssVar("--text-secondary"), "font-size": 12, "font-weight": 600
+    });
+    xLabelEl.textContent = xLabel || "X Axis";
+    svg.appendChild(xLabelEl);
+
+    const yLabelEl = el("text", {
+      x: 15, y: pad.top + plotH / 2, "text-anchor": "middle",
+      fill: cssVar("--text-secondary"), "font-size": 12, "font-weight": 600,
+      transform: `rotate(-90, 15, ${pad.top + plotH / 2})`
+    });
+    yLabelEl.textContent = yLabel || "Y Axis";
+    svg.appendChild(yLabelEl);
+
+    // color mapping
+    const colorMap = {
+      priority: cssVar("--status-critical"),
+      standard: cssVar("--status-warning"),
+      normal: cssVar("--status-good"),
+    };
+
+    // plot points
+    data.forEach((d) => {
+      const cx = xScale(d.x);
+      const cy = yScale(d.y);
+      const color = colorMap[d.tier] || cssVar("--series-1-blue");
+      const r = d.score ? 3 + (d.score * 4) : 4;  // size by score if available
+
+      const circle = el("circle", {
+        cx, cy, r, fill: color, opacity: 0.7, stroke: "none", class: "chart-point"
+      });
+
+      circle.addEventListener("mouseenter", (e) => {
+        circle.setAttribute("opacity", 1);
+        circle.setAttribute("r", r + 2);
+        const html = `
+          <strong>${Fmt.escapeHtml(d.id || "Transaction")}</strong><br>
+          ${xLabel}: ${d.x.toFixed(4)}<br>
+          ${yLabel}: ${d.y.toFixed(4)}<br>
+          Risk: ${Fmt.escapeHtml(d.tier || "unknown")}<br>
+          Score: ${d.score ? d.score.toFixed(4) : "N/A"}
+        `;
+        showTooltip(html, e.clientX, e.clientY);
+      });
+
+      circle.addEventListener("mouseleave", () => {
+        circle.setAttribute("opacity", 0.7);
+        circle.setAttribute("r", r);
+        hideTooltip();
+      });
+
+      if (d.clickable) {
+        circle.style.cursor = "pointer";
+        circle.addEventListener("click", () => {
+          if (d.onClick) d.onClick(d);
+        });
+      }
+
+      svg.appendChild(circle);
+    });
+
+    // legend
+    const legend = [
+      { label: "Priority Review", color: colorMap.priority },
+      { label: "Standard Review", color: colorMap.standard },
+      { label: "Normal", color: colorMap.normal },
+    ];
+    legendRow(container, legend);
+
+    container.appendChild(svg);
+  }
+
   return {
-    renderBarChart, renderGroupedBarChart, renderHBarChart, renderLineChart,
+    renderBarChart, renderGroupedBarChart, renderHBarChart, renderLineChart, renderScatterPlot,
     hideTooltip, cssVar,
   };
 })();

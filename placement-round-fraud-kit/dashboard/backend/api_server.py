@@ -949,18 +949,27 @@ def score_scenario(body: ScenarioRequest):
     sim = STATE["sim"]
     freq = sim["freq_lookup"]
 
-    if body.account_id not in freq["account"]:
-        raise HTTPException(status_code=404, detail=f"Account {body.account_id} not found in the dataset")
-    for label, key, value in [("Device", "device", body.device_id), ("IP address", "ip", body.ip_address),
-                              ("Merchant", "merchant", body.merchant_id)]:
-        if value not in freq[key]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"{label} '{value}' does not exist in the dataset, so it has no real frequency "
-                       f"value. Pick one that does -- inventing a frequency would fabricate the input.",
-            )
+    # Handle completely new accounts/devices/IPs/merchants by assigning default frequency (1)
+    # This allows fraud prediction on brand new data not in the training set
+
+    # Get frequency for account (default to 1 if new)
+    account_freq = freq["account"].get(body.account_id, 1)
+
+    # Get frequency for device (default to 1 if new)
+    device_freq = freq["device"].get(body.device_id, 1)
+
+    # Get frequency for IP (default to 1 if new)
+    ip_freq = freq["ip"].get(body.ip_address, 1)
+
+    # Get frequency for merchant (default to 1 if new)
+    merchant_freq = freq["merchant"].get(body.merchant_id, 1)
+
+    # Get location proportion (default to minimum if new location)
     if body.location not in sim["loc_prop"]:
-        raise HTTPException(status_code=400, detail=f"Location '{body.location}' does not exist in the dataset.")
+        # Use minimum location proportion for new locations
+        location_prop = min(sim["loc_prop"].values()) if sim["loc_prop"] else 0.001
+    else:
+        location_prop = sim["loc_prop"][body.location]
 
     ratio_raw = body.amount / (body.account_balance + 1.0)
     values = {
@@ -969,10 +978,10 @@ def score_scenario(body: ScenarioRequest):
         "TransactionDuration": _z("TransactionDuration", body.duration_seconds),
         "LoginAttempts": _z("LoginAttempts", body.login_attempts),
         "AccountBalance": _z("AccountBalance", body.account_balance),
-        "account_frequency": _z("account_frequency", freq["account"][body.account_id]),
-        "device_frequency": _z("device_frequency", freq["device"][body.device_id]),
-        "ip_frequency": _z("ip_frequency", freq["ip"][body.ip_address]),
-        "merchant_frequency": _z("merchant_frequency", freq["merchant"][body.merchant_id]),
+        "account_frequency": _z("account_frequency", account_freq),
+        "device_frequency": _z("device_frequency", device_freq),
+        "ip_frequency": _z("ip_frequency", ip_freq),
+        "merchant_frequency": _z("merchant_frequency", merchant_freq),
         "amount_to_balance_ratio": _z("amount_to_balance_ratio", float(np.log1p(ratio_raw))),
         "high_amount_transaction": 1.0 if body.amount > sim["high_amount_threshold"] else 0.0,
         "TransactionType_Debit": 1.0 if body.txn_type == "Debit" else 0.0,
@@ -981,7 +990,7 @@ def score_scenario(body: ScenarioRequest):
         "CustomerOccupation_Engineer": 1.0 if body.customer_occupation == "Engineer" else 0.0,
         "CustomerOccupation_Retired": 1.0 if body.customer_occupation == "Retired" else 0.0,
         "CustomerOccupation_Student": 1.0 if body.customer_occupation == "Student" else 0.0,
-        "Location_FE": _z("Location_FE", sim["loc_prop"][body.location]),
+        "Location_FE": _z("Location_FE", location_prop),
     }
     x = np.array([[values[c] for c in FEATURE_COLS_V2]], dtype=float)
 
@@ -1039,11 +1048,11 @@ def score_scenario(body: ScenarioRequest):
         "risk_tier_code": tier,
         "risk_tier_label": TIER_LABELS[tier],
         "frequency_inputs_used": {
-            "account_frequency": int(freq["account"][body.account_id]),
-            "device_frequency": int(freq["device"][body.device_id]),
-            "ip_frequency": int(freq["ip"][body.ip_address]),
-            "merchant_frequency": int(freq["merchant"][body.merchant_id]),
-            "location_share_pct": round(100 * sim["loc_prop"][body.location], 2),
+            "account_frequency": int(account_freq),
+            "device_frequency": int(device_freq),
+            "ip_frequency": int(ip_freq),
+            "merchant_frequency": int(merchant_freq),
+            "location_share_pct": round(100 * location_prop, 2),
         },
         "derived": {
             "amount_to_balance_ratio_raw": round(ratio_raw, 4),
@@ -1214,3 +1223,10 @@ async def upload_predict(file: UploadFile = File(...)):
 
 
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    print("Starting Bank Fraud Detection Dashboard...")
+    print("Navigate to: http://localhost:8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

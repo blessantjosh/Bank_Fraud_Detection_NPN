@@ -1,4 +1,4 @@
-/* Thin fetch wrapper around the Argus FastAPI backend. Same-origin -- the
+/* Thin fetch wrapper around the FastAPI backend. Same-origin -- the
  * backend serves this frontend directly via StaticFiles, so no base URL or
  * CORS configuration is needed. */
 const Api = (() => {
@@ -38,6 +38,8 @@ const Api = (() => {
   }
 
   return {
+    get,
+    post,
     kpis: () => get("/api/kpis"),
     transactions: (params) => get("/api/transactions", params),
     transaction: (id) => get(`/api/transactions/${encodeURIComponent(id)}`),
