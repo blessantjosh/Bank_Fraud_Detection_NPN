@@ -1085,33 +1085,28 @@ def meta():
 
 
 # ---------------------------------------------------------------------------
-# Upload & Predict -- the ONE new route. Everything else in this file is
-# unchanged from before this feature was added.
+# Upload & Predict. Accepts either of the two CSV shapes already used
+# elsewhere in this project:
+#   (a) the raw transaction log (TransactionID, AccountID, TransactionDate,
+#       DeviceID, ... -- same columns as data/bank_transactions_data_2.csv)
+#       -> scored with the leakage-fixed v1 XGBoost pipeline.
+#   (b) the already-engineered 18-feature matrix (FEATURE_COLS_V2 -- same
+#       shape as artifacts_research/features_teammate_merged.csv, which is
+#       what a teammate's separate feature-engineering pipeline produces)
+#       -> scored with the same Isolation Forest + Autoencoder two-model
+#       percentile average the Scenario Simulator already uses, since there
+#       are no raw/ID columns to run the v1 feature engineering on.
+# Everything else in this file is unchanged from before this feature was added.
 # ---------------------------------------------------------------------------
-@app.post("/api/upload/predict")
-async def upload_predict(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Please upload a .csv file.")
-    raw_bytes = await file.read()
-    try:
-        df = pd.read_csv(io.BytesIO(raw_bytes))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not parse this file as CSV: {e}")
+RAW_FORMAT_CUTOFF_PCT = 50.0   # v1's XGBoost outputs a calibrated-ish probability -- 50% is a sensible split
+V2_FORMAT_CUTOFF_PCT = 95.0    # two-model score is a PERCENTILE RANK, not a probability -- it is uniformly
+                                # spread 0-100% by construction, so a 50% cutoff would always split ~50/50
+                                # regardless of the data. The rest of this dashboard (and the Scenario
+                                # Simulator) treats the top 5% (>=95th percentile) as the flagged group --
+                                # reused here for the same reason, not a new assumption.
 
-    if len(df) == 0:
-        raise HTTPException(status_code=400, detail="The uploaded CSV has no rows.")
-    if len(df) > UPLOAD_MAX_ROWS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"This tool scores up to {UPLOAD_MAX_ROWS:,} rows at a time; the uploaded file has {len(df):,}.",
-        )
-    missing = [c for c in UPLOAD_REQUIRED_COLS if c not in df.columns]
-    if missing:
-        raise HTTPException(
-            status_code=400,
-            detail=f"CSV is missing required column(s): {', '.join(missing)}.",
-        )
 
+def _score_raw_format(df: pd.DataFrame):
     df_work = df.copy()
     try:
         df_work["TransactionDate"] = pd.to_datetime(df_work["TransactionDate"], format="%d-%m-%Y %H:%M")
@@ -1139,10 +1134,81 @@ async def upload_predict(file: UploadFile = File(...)):
             "amount": round(float(orig.get("TransactionAmount", 0.0)), 2),
             "fraud_percentage": round(float(proba[i]) * 100, 2),
         })
+    return results, "XGBoost (leakage-fixed v1 pipeline)", RAW_FORMAT_CUTOFF_PCT
+
+
+def _score_v2_feature_format(df: pd.DataFrame):
+    sim = STATE["sim"]
+    X = df[FEATURE_COLS_V2].astype(float).values
+
+    if_scores = -sim["iforest"].decision_function(sim["robust_scaler"].transform(X))
+    ae_scores, _, _, _ = reconstruction_errors(sim["ae_model"], sim["ae_scaler"].transform(X))
+
+    if_pct = np.array([_percentile_of(sim["if_sorted"], s) for s in if_scores])
+    ae_pct = np.array([_percentile_of(sim["ae_sorted"], s) for s in ae_scores])
+    two_model = (if_pct + ae_pct) / 2.0
+    two_model_pct = np.array([_percentile_of(sim["two_model_ref"], v) for v in two_model])
+
+    results = []
+    for i in range(len(df)):
+        results.append({
+            "transaction_id": str(df.iloc[i].get("TransactionID", f"row_{i}")),
+            "account_id": str(df.iloc[i].get("AccountID", "")),
+            "date": "",
+            "amount": None,
+            "fraud_percentage": round(float(two_model_pct[i]) * 100, 2),
+        })
+    return results, "Isolation Forest + Autoencoder percentile average (research_v2 pipeline)", V2_FORMAT_CUTOFF_PCT
+
+
+@app.post("/api/upload/predict")
+async def upload_predict(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please upload a .csv file.")
+    raw_bytes = await file.read()
+    try:
+        df = pd.read_csv(io.BytesIO(raw_bytes))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not parse this file as CSV: {e}")
+
+    if len(df) == 0:
+        raise HTTPException(status_code=400, detail="The uploaded CSV has no rows.")
+    if len(df) > UPLOAD_MAX_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This tool scores up to {UPLOAD_MAX_ROWS:,} rows at a time; the uploaded file has {len(df):,}.",
+        )
+
+    is_raw_format = not [c for c in UPLOAD_REQUIRED_COLS if c not in df.columns]
+    is_v2_feature_format = not [c for c in FEATURE_COLS_V2 if c not in df.columns]
+
+    if is_raw_format:
+        results, model_used, cutoff = _score_raw_format(df)
+    elif is_v2_feature_format:
+        results, model_used, cutoff = _score_v2_feature_format(df)
+    else:
+        missing_raw = [c for c in UPLOAD_REQUIRED_COLS if c not in df.columns]
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"CSV doesn't match either supported format. For the raw transaction log, it's missing: "
+                f"{', '.join(missing_raw)}. It also doesn't match the pre-engineered 18-feature format "
+                f"({', '.join(FEATURE_COLS_V2)})."
+            ),
+        )
+
+    fraud_count = sum(1 for r in results if r["fraud_percentage"] >= cutoff)
+    total = len(results)
+    not_fraud_count = total - fraud_count
 
     return {
-        "total": len(results),
-        "model": "XGBoost (leakage-fixed v1 pipeline)",
+        "total": total,
+        "model": model_used,
+        "fraud_count": fraud_count,
+        "not_fraud_count": not_fraud_count,
+        "fraud_rate_pct": round(100 * fraud_count / total, 2),
+        "not_fraud_rate_pct": round(100 * not_fraud_count / total, 2),
+        "fraud_cutoff_pct": cutoff,
         "results": results,
     }
 

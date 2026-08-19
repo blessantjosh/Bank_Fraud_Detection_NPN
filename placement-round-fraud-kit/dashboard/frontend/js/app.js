@@ -551,11 +551,12 @@ function renderSimCharts(r) {
 function uploadRowHtml(r) {
   const highRisk = r.fraud_percentage >= 70;
   const pctStyle = highRisk ? ` style="color:var(--status-critical);font-weight:600"` : "";
+  const dash = (v) => (v === null || v === undefined || v === "" ? "—" : v);
   return `<tr>
-    <td>${Fmt.escapeHtml(r.transaction_id)}</td>
-    <td>${Fmt.escapeHtml(r.account_id)}</td>
-    <td>${Fmt.escapeHtml(r.date)}</td>
-    <td class="num tabular">${Fmt.money(r.amount)}</td>
+    <td>${Fmt.escapeHtml(String(dash(r.transaction_id)))}</td>
+    <td>${Fmt.escapeHtml(String(dash(r.account_id)))}</td>
+    <td>${Fmt.escapeHtml(String(dash(r.date)))}</td>
+    <td class="num tabular">${r.amount === null || r.amount === undefined ? "—" : Fmt.money(r.amount)}</td>
     <td class="num tabular"${pctStyle}>${r.fraud_percentage.toFixed(2)}%</td>
   </tr>`;
 }
@@ -580,7 +581,10 @@ function wireUploadForm() {
       const resp = await Api.uploadPredict(file);
       statusEl.textContent = `Scored ${Fmt.int(resp.total)} transactions with ${Fmt.escapeHtml(resp.model)}.`;
       document.getElementById("upload-results-subtitle").textContent =
-        `${Fmt.int(resp.total)} transactions — model: ${resp.model}. Rows at or above 70% are highlighted.`;
+        `${Fmt.int(resp.total)} transactions — model: ${resp.model}. ` +
+        `"Predicted fraud" = fraud % at or above ${resp.fraud_cutoff_pct}%. Rows at or above 70% are highlighted.`;
+      document.getElementById("upload-fraud-pct").textContent = `${resp.fraud_rate_pct.toFixed(2)}%`;
+      document.getElementById("upload-not-fraud-pct").textContent = `${resp.not_fraud_rate_pct.toFixed(2)}%`;
       document.querySelector("#table-upload-results tbody").innerHTML =
         resp.results.map(uploadRowHtml).join("") || emptyRow(5);
       resultsCard.style.display = "block";

@@ -327,7 +327,7 @@
       <section class="page" id="page-upload">
         <div class="card">
           <p class="card-title">Score a new batch of transactions</p>
-          <p class="card-subtitle">Upload a CSV of up to 5,000 transactions to score against the leakage-fixed XGBoost v1 pipeline. Required columns: TransactionID, AccountID, TransactionAmount, TransactionDate, TransactionType, Location, DeviceID, IP Address, MerchantID, Channel, CustomerAge, CustomerOccupation, TransactionDuration, LoginAttempts, AccountBalance.</p>
+          <p class="card-subtitle">Upload a CSV of up to 5,000 transactions. Two formats are accepted: the raw transaction log (TransactionID, AccountID, TransactionAmount, TransactionDate, TransactionType, Location, DeviceID, IP Address, MerchantID, Channel, CustomerAge, CustomerOccupation, TransactionDuration, LoginAttempts, AccountBalance — scored with the leakage-fixed v1 XGBoost pipeline), or the pre-engineered 18-feature matrix used elsewhere in this dashboard (scored with the same Isolation Forest + Autoencoder models as the Scenario Simulator).</p>
           <form id="upload-form" class="filter-bar" style="margin-bottom:0">
             <input class="input" type="file" id="upload-file-input" accept=".csv" required />
             <button class="btn btn-primary" type="submit" id="upload-predict-btn">Predict</button>
@@ -338,6 +338,10 @@
         <div class="card section-gap" id="upload-results-card" style="display:none">
           <p class="card-title">Results</p>
           <p class="card-subtitle" id="upload-results-subtitle"></p>
+          <div class="grid grid-cols-2 section-gap" id="upload-summary-tiles">
+            <div class="kpi-tile"><p class="kpi-label">Predicted fraud</p><div class="kpi-value" id="upload-fraud-pct" style="color:var(--status-critical)"></div></div>
+            <div class="kpi-tile"><p class="kpi-label">Predicted not fraud</p><div class="kpi-value" id="upload-not-fraud-pct" style="color:var(--status-good)"></div></div>
+          </div>
           <div class="table-wrap"><table class="data-table" id="table-upload-results">
             <thead><tr>
               <th>Transaction ID</th><th>Account ID</th><th>Date</th><th class="num">Amount</th><th class="num">Fraud %</th>
