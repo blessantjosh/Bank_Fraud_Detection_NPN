@@ -1,1 +1,18 @@
-{}
+{
+  "TX000275": {
+    "action": "approved",
+    "updated_at": "2026-08-19T06:32:21.967177Z"
+  },
+  "TX002125": {
+    "action": "blocked",
+    "updated_at": "2026-08-19T06:56:33.117833Z"
+  },
+  "TX000148": {
+    "action": "escalated",
+    "updated_at": "2026-08-19T06:56:40.786034Z"
+  },
+  "TX000395": {
+    "action": "blocked",
+    "updated_at": "2026-08-19T06:56:45.365267Z"
+  }
+}

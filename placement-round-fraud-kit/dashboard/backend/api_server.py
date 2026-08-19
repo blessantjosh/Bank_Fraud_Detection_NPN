@@ -1,5 +1,5 @@
 """
-Argus -- Behavioral Anomaly Intelligence.
+Bank Transaction Fraud & Anomaly Detection.
 
 FastAPI backend for the fraud-analytics dashboard, wired to the **research_v2
 pipeline** (the client-designated final pipeline, built on the teammate's
@@ -42,6 +42,7 @@ import io
 import json
 import os
 import sys
+import uuid
 from datetime import datetime, timezone
 from typing import List, Literal, Optional
 
@@ -96,6 +97,26 @@ UPLOAD_REQUIRED_COLS = [
     "CustomerOccupation", "TransactionDuration", "LoginAttempts", "AccountBalance",
 ]
 UPLOAD_MAX_ROWS = 5000
+UPLOAD_HISTORY_PATH = os.path.join(BACKEND_DIR, "upload_history.json")
+UPLOAD_HISTORY_MAX_ENTRIES = 200
+
+
+def _load_upload_history():
+    if os.path.exists(UPLOAD_HISTORY_PATH):
+        with open(UPLOAD_HISTORY_PATH) as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return []
+    return []
+
+
+def _save_upload_history_entry(entry):
+    history = _load_upload_history()
+    history.append(entry)
+    history = history[-UPLOAD_HISTORY_MAX_ENTRIES:]
+    with open(UPLOAD_HISTORY_PATH, "w") as f:
+        json.dump(history, f, indent=2)
 
 # ---------------------------------------------------------------------------
 # labels
@@ -381,7 +402,7 @@ def _save_queue_state(state: dict) -> None:
 
 QUEUE_STATE = _load_queue_state()
 
-app = FastAPI(title="Argus", description="Behavioral Anomaly Intelligence")
+app = FastAPI(title="Bank Transaction Fraud & Anomaly Detection", description="Bank transaction fraud and anomaly detection dashboard")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -554,9 +575,10 @@ def kpis():
     agree_counts = ledger["models_flagged"].value_counts().sort_index()
 
     daily = (
-        ledger.assign(day=ledger["date"].dt.date)
-        .groupby("day").size().reset_index(name="count").sort_values("day")
+        ledger.assign(day=ledger["date"].dt.date, flagged=ledger["risk_tier_code"].isin(["priority", "standard"]))
+        .groupby("day").agg(count=("flagged", "size"), flagged=("flagged", "sum")).reset_index().sort_values("day")
     )
+    daily["flag_rate_pct"] = (daily["flagged"] / daily["count"] * 100).round(2)
     top_risk = ledger.sort_values("risk_score", ascending=False).index[:10]
 
     priority = int(tier_counts.get("priority", 0))
@@ -581,7 +603,8 @@ def kpis():
             {"models": int(v), "count": int(c)} for v, c in agree_counts.items()
         ],
         "timeseries": [
-            {"date": str(d), "count": int(c)} for d, c in zip(daily["day"], daily["count"])
+            {"date": str(row.day), "count": int(row.count), "flagged": int(row.flagged), "flag_rate_pct": float(row.flag_rate_pct)}
+            for row in daily.itertuples()
         ],
         "top_risk": [_row_summary(i) for i in top_risk],
     }
@@ -924,9 +947,13 @@ def simulator_account(account_id: str):
 
 
 class ScenarioRequest(BaseModel):
+    # No range limits by design -- this is typed by hand, and any number the
+    # user types should be scored as-is rather than rejected by an arbitrary
+    # bound. Only the account/device/IP/merchant/location existence checks
+    # below are enforced, because those are real data, not free-form numbers.
     account_id: str = Field(..., description="Must be an existing AccountID")
-    amount: float = Field(..., gt=0)
-    account_balance: float = Field(..., ge=0)
+    amount: float
+    account_balance: float
     txn_type: str
     channel: str
     location: str
@@ -934,9 +961,9 @@ class ScenarioRequest(BaseModel):
     ip_address: str
     merchant_id: str
     customer_occupation: str
-    customer_age: int = Field(..., ge=18, le=120)
-    duration_seconds: int = Field(..., ge=1)
-    login_attempts: int = Field(..., ge=1)
+    customer_age: float
+    duration_seconds: float
+    login_attempts: float
 
 
 def _z(name: str, value: float) -> float:
@@ -1200,17 +1227,38 @@ async def upload_predict(file: UploadFile = File(...)):
     fraud_count = sum(1 for r in results if r["fraud_percentage"] >= cutoff)
     total = len(results)
     not_fraud_count = total - fraud_count
+    fraud_rate_pct = round(100 * fraud_count / total, 2)
+    not_fraud_rate_pct = round(100 * not_fraud_count / total, 2)
+
+    _save_upload_history_entry({
+        "id": uuid.uuid4().hex,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "filename": file.filename,
+        "model": model_used,
+        "total": total,
+        "fraud_count": fraud_count,
+        "not_fraud_count": not_fraud_count,
+        "fraud_rate_pct": fraud_rate_pct,
+        "not_fraud_rate_pct": not_fraud_rate_pct,
+        "results": results,
+    })
 
     return {
         "total": total,
         "model": model_used,
         "fraud_count": fraud_count,
         "not_fraud_count": not_fraud_count,
-        "fraud_rate_pct": round(100 * fraud_count / total, 2),
-        "not_fraud_rate_pct": round(100 * not_fraud_count / total, 2),
+        "fraud_rate_pct": fraud_rate_pct,
+        "not_fraud_rate_pct": not_fraud_rate_pct,
         "fraud_cutoff_pct": cutoff,
         "results": results,
     }
+
+
+@app.get("/api/upload/history")
+def upload_history():
+    """Every past Upload & Predict run (summary only, not the per-row results), newest first."""
+    return {"entries": list(reversed(_load_upload_history()))}
 
 
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

@@ -1,4 +1,4 @@
-# Argus — Behavioral Anomaly Intelligence
+# Bank Transaction Fraud & Anomaly Detection
 
 A browse-first fraud-analytics console built on top of the **research_v2
 pipeline** — the client-designated final pipeline, built on the teammate's
@@ -6,7 +6,7 @@ pipeline** — the client-designated final pipeline, built on the teammate's
 `../artifacts_research_v2/`). It does not retrain or recompute anything: it
 loads that pipeline's artifacts and adds a serving layer and a web UI.
 
-> **Data-source note.** Argus was originally wired to the v1 pipeline
+> **Data-source note.** This dashboard was originally wired to the v1 pipeline
 > (`../artifacts/`: `labeled.csv`, `xgb_model.json`, `reference.pkl`,
 > `thresholds.json`) and showed risk tiers derived from a supervised XGBoost
 > model trained to reproduce a 4-detector unsupervised ensemble. It now serves

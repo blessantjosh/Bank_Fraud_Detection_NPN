@@ -66,7 +66,7 @@ This is the deployment design for **this** system — every stage below names th
                      ▼                                                ▼
         ┌────────────────────────────┐                 ┌──────────────────────────┐
         │  EXPLANATION LAYER         │                 │  6  INVESTIGATION        │
-        │  shap_isolation_forest.csv │────────────────▶│     DASHBOARD — "Argus"  │
+        │  shap_isolation_forest.csv │────────────────▶│     DASHBOARD — "Bank Transaction Fraud & Anomaly Detection"  │
         │  shap_autoencoder.csv      │  per-txn attrib │  dashboard/backend/      │
         │  (two families, both shown)│                 │    api_server.py         │
         └────────────────────────────┘                 │  FastAPI + static JS     │
@@ -92,7 +92,7 @@ This is the deployment design for **this** system — every stage below names th
 Two ingestion rules are already established by the analysis and must be enforced at the boundary, not rediscovered downstream:
 
 - **`PreviousTransactionDate` is dropped, not used.** Phase 2 §4 found 7 unique values across all 2,512 rows spanning 6.0 minutes on 2024-11-04 — a single bulk-export timestamp stamped onto every row, ten months after the latest `TransactionDate`. Every recency and velocity feature is derived from `TransactionDate` sorted per `AccountID` instead. A production ingester should either receive a real per-account previous-transaction timestamp or omit the column entirely; silently accepting a constant here would let a dead feature into the model matrix.
-- **Chronological sort is part of the contract, not a convenience.** Everything downstream assumes rows sorted `AccountID → TransactionDate → TransactionID` (Phase 5, and `src/fe_utils.py::fit_engineer`). Every expanding-window and prior-only feature is leakage-safe *only* under that ordering. Phase 5 verified this rather than assuming it, by recomputing `TimeSinceLastTxn` independently and checking it matched `artifacts/features.csv` row-for-row (**confirmed: MATCH**). That check should be a startup assertion in production, not a one-time validation — the Argus backend already does the equivalent, raising a `RuntimeError` on a row-count or row-alignment mismatch between the raw CSV, `labeled.csv` and `anomaly_votes.csv` (`dashboard/backend/api_server.py:133–141`).
+- **Chronological sort is part of the contract, not a convenience.** Everything downstream assumes rows sorted `AccountID → TransactionDate → TransactionID` (Phase 5, and `src/fe_utils.py::fit_engineer`). Every expanding-window and prior-only feature is leakage-safe *only* under that ordering. Phase 5 verified this rather than assuming it, by recomputing `TimeSinceLastTxn` independently and checking it matched `artifacts/features.csv` row-for-row (**confirmed: MATCH**). That check should be a startup assertion in production, not a one-time validation — the Bank Transaction Fraud & Anomaly Detection backend already does the equivalent, raising a `RuntimeError` on a row-count or row-alignment mismatch between the raw CSV, `labeled.csv` and `anomaly_votes.csv` (`dashboard/backend/api_server.py:133–141`).
 
 **Data-quality gates worth enforcing at ingestion**, all derived from Phase 3, which found the training data clean on every one of them (0 missing cells of 45,216; 0 duplicate rows; 0 duplicate `TransactionID`s; 0 near-duplicates under the same-account/same-amount/same-minute rule): reject on duplicate `TransactionID`, alert on any missing cell, and alert on near-duplicates. Phase 3's reasoning for the last one is the operationally important part — near-duplicate ledger entries would inflate the velocity/burst features and manufacture a fraud signal out of a data bug.
 
@@ -123,7 +123,7 @@ Scaling: `RobustScaler`, fit on the training split only, persisted as `artifacts
 
 ### 3.2 Real-time path — partially implemented, and this is the largest gap in the architecture
 
-`src/fe_utils.py::transform_new(txn, reference)` engineers features for **one** transaction dict using statistics captured at training time in `artifacts/reference.pkl`, and reindexes to `reference["feature_cols"]`. It is real, working code — the Argus What-if simulator calls it (`dashboard/backend/api_server.py:691`) and `DOCUMENTATION.md` Stage 7 records it being verified for both an existing account with history and a brand-new account with none.
+`src/fe_utils.py::transform_new(txn, reference)` engineers features for **one** transaction dict using statistics captured at training time in `artifacts/reference.pkl`, and reindexes to `reference["feature_cols"]`. It is real, working code — the Bank Transaction Fraud & Anomaly Detection What-if simulator calls it (`dashboard/backend/api_server.py:691`) and `DOCUMENTATION.md` Stage 7 records it being verified for both an existing account with history and a brand-new account with none.
 
 **But it produces v1's 20 features, not the 46 this system scores on.** `reference.pkl`'s per-account state holds exactly four things — `running_mean_amount`, `devices`, `locations`, `last_time` — which is enough for `Amount_vs_AccountAvg`, `DeviceNoveltyFlag`, `LocationNoveltyFlag` and `TimeSinceLastTxn`, and nothing else. The 26 Phase 5 features are not reachable from it.
 
@@ -203,7 +203,7 @@ Each model's score is converted to its own empirical percentile via `(rank − 0
 
 ---
 
-## 7. Stage 6 — Investigation Dashboard (Argus)
+## 7. Stage 6 — Investigation Dashboard (Bank Transaction Fraud & Anomaly Detection)
 
 **This stage is built and verified.** `dashboard/` contains a FastAPI backend (`backend/api_server.py`) serving a plain HTML/CSS/JS frontend through `StaticFiles` — no build step, no CDN, no external fonts, no network calls at runtime.
 
@@ -217,11 +217,11 @@ Six pages: Overview (KPI tiles, risk-tier distribution, volume over time, top-10
 
 ### 7.1 What it currently scores against
 
-Argus sits on the **v1** pipeline, not on this research pipeline. Specifically: it loads `artifacts/reference.pkl`, `artifacts/labeled.csv`, `artifacts/anomaly_votes.csv` and `artifacts/thresholds.json`, scores every row with v1's SMOTE-trained XGBoost (`model.predict_proba(...)[:, 1]`, `api_server.py:144`), and precomputes a single `shap.TreeExplainer` pass over all rows into `backend/cache/shap_values.npy`. Verdicts come from `artifacts/thresholds.json`: `review_threshold = 0.09`, `block_threshold = 0.94`.
+Bank Transaction Fraud & Anomaly Detection sits on the **v1** pipeline, not on this research pipeline. Specifically: it loads `artifacts/reference.pkl`, `artifacts/labeled.csv`, `artifacts/anomaly_votes.csv` and `artifacts/thresholds.json`, scores every row with v1's SMOTE-trained XGBoost (`model.predict_proba(...)[:, 1]`, `api_server.py:144`), and precomputes a single `shap.TreeExplainer` pass over all rows into `backend/cache/shap_values.npy`. Verdicts come from `artifacts/thresholds.json`: `review_threshold = 0.09`, `block_threshold = 0.94`.
 
 That means the risk score an analyst currently sees is **a supervised model's reproduction of v1's four-detector consensus** — which `LIMITATIONS.md` is blunt about: the 0.97-class ROC-AUC "measures how well XGBoost reproduces the anomaly ensemble's own judgment, not real-world fraud-catching accuracy." The dashboard surfaces this caveat in its own UI (Overview "About this system" panel and the sidebar footer).
 
-### 7.2 Migrating Argus onto the Phase 12 ensemble score
+### 7.2 Migrating Bank Transaction Fraud & Anomaly Detection onto the Phase 12 ensemble score
 
 A realistic follow-up, scoped honestly. Five changes, in dependency order:
 
@@ -233,7 +233,7 @@ A realistic follow-up, scoped honestly. Five changes, in dependency order:
 
 Items 1, 2 and 4 are a day's work. Item 3 is a few days of UI work. Item 5 is the real-time feature store, which is §8-scale work.
 
-### 7.3 The one thing Argus produces that nothing else does
+### 7.3 The one thing Bank Transaction Fraud & Anomaly Detection produces that nothing else does
 
 The Investigation Queue's Approve/Escalate/Block actions persist to `backend/queue_state.json`, written on the first queue action (the file does not exist until then, and `backend/cache/shap_values.npy` is likewise written on first startup). In a system whose defining limitation is the absence of any label, **that file is the seed of the first real one**. It is not a fraud label — an analyst's verdict is a judgement, not a confirmed outcome — but it is human, independent of the models, and it accumulates. Persisting it in a schema that can later be joined to case-management outcomes is the cheapest thing this project could do to escape the circularity described in `LIMITATIONS.md`, and it is worth doing before the volume that would make it useful arrives.
 

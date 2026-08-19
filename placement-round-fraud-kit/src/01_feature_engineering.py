@@ -24,7 +24,7 @@ val and test. Nothing about val or test rows contributes to any of these
 fitted statistics.
 
 Also persists reference.pkl (full-dataset account history + lookup stats) so
-live scoring (the Argus dashboard's "Upload & Predict" page) can engineer a
+live scoring (the dashboard's "Upload & Predict" page) can engineer a
 brand-new transaction's features the same way training data was engineered.
 reference.pkl intentionally uses the FULL dataset (train+val+test) because,
 by the time a new transaction arrives live, all of history to date is

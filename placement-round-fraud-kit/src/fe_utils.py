@@ -1,7 +1,7 @@
 """
 Shared feature-engineering logic for the fraud-detection pipeline.
 
-Used by 01_feature_engineering.py (batch, at training time) and the Argus
+Used by 01_feature_engineering.py (batch, at training time) and the
 dashboard's "Upload & Predict" page (single/batch transactions, at inference
 time, via dashboard/backend/api_server.py) so the two never drift apart.
 
@@ -30,7 +30,7 @@ LEAKAGE-SAFE DESIGN (see ML_AUDIT_AFTER_FIX.md for the full writeup):
       categoricals. Pass encoders=None to FIT (training fold only); pass the
       fitted dict back in to transform any other fold/row identically.
 
-reference.pkl (used by the Argus dashboard's "Upload & Predict" page for
+reference.pkl (used by the dashboard's "Upload & Predict" page for
 brand-new transactions) is built from the FULL dataset via
 fit_global_stats/build_account_history -- this is intentional and does not
 leak into evaluation: by the time a genuinely new transaction arrives live,

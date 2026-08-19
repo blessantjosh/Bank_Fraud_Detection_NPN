@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Argus — Behavioral Anomaly Intelligence</title>
+<title>Bank Transaction Fraud &amp; Anomaly Detection</title>
 <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -11,10 +11,10 @@
 
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark">A</div>
+      <div class="brand-mark">B</div>
       <div class="brand-text">
-        <h1>Argus</h1>
-        <p>Behavioral Anomaly Intelligence</p>
+        <h1>Bank Transaction</h1>
+        <p>Fraud &amp; Anomaly Detection</p>
       </div>
     </div>
 
@@ -25,17 +25,12 @@
       <button class="nav-item" data-page="comparison"></button>
       <button class="nav-item" data-page="explainability"></button>
       <button class="nav-item" data-page="upload"></button>
+      <button class="nav-item" data-page="history"></button>
     </nav>
     <div class="nav-section-label">Secondary tool</div>
     <nav class="nav">
       <button class="nav-item" data-page="simulator"></button>
     </nav>
-
-    <div class="sidebar-footer">
-      Scores are a research signal from an 11-model unsupervised anomaly
-      ensemble on an unlabelled dataset — not a verified fraud determination,
-      and never an automatic block. See About on the Overview page.
-    </div>
   </aside>
 
   <div class="main">
@@ -44,10 +39,10 @@
         <h2 id="page-title">Overview Dashboard</h2>
         <div class="topbar-sub" id="page-subtitle">Portfolio-wide transaction risk, at a glance</div>
       </div>
-      <button class="theme-toggle" id="theme-toggle" type="button">
-        <span id="theme-icon"></span>
-        <span id="theme-label">Dark</span>
-      </button>
+      <div class="status-pill">
+        <span class="status-pulse"></span>
+        Live scoring
+      </div>
     </header>
 
     <main class="page-root">
@@ -55,11 +50,28 @@
       <!-- ================= OVERVIEW ================= -->
       <section class="page active" id="page-overview">
         <div class="grid grid-cols-5" id="kpi-tiles">
-          <div class="kpi-tile"><p class="kpi-label">Total transactions</p><div class="kpi-value skeleton-loading" data-kpi="total"></div></div>
-          <div class="kpi-tile"><p class="kpi-label">Priority review (P99)</p><div class="kpi-value skeleton-loading" data-kpi="priority"></div></div>
-          <div class="kpi-tile"><p class="kpi-label">Standard review (P95)</p><div class="kpi-value skeleton-loading" data-kpi="standard"></div></div>
-          <div class="kpi-tile"><p class="kpi-label">Flag rate</p><div class="kpi-value skeleton-loading" data-kpi="flagrate"></div></div>
-          <div class="kpi-tile"><p class="kpi-label">Avg. transaction amount</p><div class="kpi-value skeleton-loading" data-kpi="avgamount"></div></div>
+          <div class="kpi-tile">
+            <div class="kpi-tile-head"><p class="kpi-label">Total transactions</p><span class="kpi-icon-chip tint-blue" data-kpi-icon="overview"></span></div>
+            <div class="kpi-value skeleton-loading" data-kpi="total"></div>
+            <div class="kpi-trend" data-trend="total"></div>
+          </div>
+          <div class="kpi-tile">
+            <div class="kpi-tile-head"><p class="kpi-label">Priority review (P99)</p><span class="kpi-icon-chip tint-critical" data-kpi-icon="critical"></span></div>
+            <div class="kpi-value skeleton-loading" data-kpi="priority"></div>
+          </div>
+          <div class="kpi-tile">
+            <div class="kpi-tile-head"><p class="kpi-label">Standard review (P95)</p><span class="kpi-icon-chip tint-warning" data-kpi-icon="warning"></span></div>
+            <div class="kpi-value skeleton-loading" data-kpi="standard"></div>
+          </div>
+          <div class="kpi-tile">
+            <div class="kpi-tile-head"><p class="kpi-label">Flag rate</p><span class="kpi-icon-chip tint-violet" data-kpi-icon="explainability"></span></div>
+            <div class="kpi-value skeleton-loading" data-kpi="flagrate"></div>
+            <div class="kpi-trend" data-trend="flagrate"></div>
+          </div>
+          <div class="kpi-tile">
+            <div class="kpi-tile-head"><p class="kpi-label">Avg. transaction amount</p><span class="kpi-icon-chip tint-good" data-kpi-icon="comparison"></span></div>
+            <div class="kpi-value skeleton-loading" data-kpi="avgamount"></div>
+          </div>
         </div>
 
         <div class="grid grid-cols-2 section-gap">
@@ -67,16 +79,20 @@
             <p class="card-title">Risk-tier distribution</p>
             <p class="card-subtitle" id="tier-distribution-subtitle">2,512 transactions, split by the Phase 13 percentile cutoffs</p>
             <div id="chart-tier-distribution"></div>
+            <div id="tier-distribution-legend" class="legend-breakdown"></div>
           </div>
           <div class="card">
-            <p class="card-title">Transaction volume over time</p>
-            <p class="card-subtitle">Transactions per day, full dataset window</p>
+            <p class="card-title">Alert volume &amp; flag rate over time</p>
+            <p class="card-subtitle">Flagged transactions and flag rate per day, full dataset window</p>
             <div id="chart-timeseries"></div>
           </div>
         </div>
 
         <div class="card section-gap">
-          <p class="card-title">Highest-risk transactions right now</p>
+          <div class="card-title-row">
+            <p class="card-title">Highest-risk transactions right now</p>
+            <span class="status-pill status-pill-sm"><span class="status-pulse"></span>Live</span>
+          </div>
           <p class="card-subtitle">Top 10 by ensemble percentile score — click a row for the full explanation</p>
           <div class="table-wrap"><table class="data-table" id="table-top-risk">
             <thead><tr>
@@ -90,33 +106,33 @@
         <div class="card section-gap about-panel">
           <h4>About this system</h4>
           <p>
-            "Risk" here means <strong>pattern-consistency with an eleven-model unsupervised anomaly
-            ensemble</strong> — Isolation Forest, LOF, One-Class SVM, Elliptic Envelope, DBSCAN, HDBSCAN,
-            K-Means, GMM, Autoencoder, VAE and an LSTM Autoencoder — combined by <strong>percentile
-            aggregation</strong> into a single score in (0,1). It is not a verified, investigator-confirmed
-            fraud outcome: this dataset carries <strong>no ground-truth fraud label</strong>, so no precision,
-            recall or AUC against fraud is claimed anywhere in this project.
+            "Risk" means pattern-consistency with an <strong>eleven-model unsupervised anomaly ensemble</strong>,
+            not a verified fraud outcome — this dataset has <strong>no ground-truth fraud label</strong>, and
+            there is deliberately <strong>no automatic block tier</strong>.
           </p>
-          <p>
-            The two review tiers are the 99th percentile (priority) and 95th percentile (standard) of that
-            score. <strong>There is deliberately no automatic block tier.</strong> A cost-optimal blocking
-            threshold requires counting false negatives, which requires knowing which <em>unflagged</em>
-            transactions are fraud — unknowable without a label.
-          </p>
-          <p>
-            One structural limit to state plainly: this feature set is built from <strong>population-level
-            statistics</strong> (global device / IP / merchant / account frequency counts, a global top-5%
-            amount flag, a location frequency encoding). It has no per-account history and no per-account
-            novelty flags, so it can ask "is this unusual in the population" but <strong>not</strong> "is this
-            unusual for this specific customer". Account takeover is therefore only partially detectable here.
-          </p>
-          <p>
-            The dataset is also far smaller than a production deployment would see (2,512 transactions, 495
-            accounts, 6.88/day), and the 5% contamination rate used to tune the detectors is a documented
-            assumption, not a measured fraud rate. Before production use: validate against investigator-labelled
-            cases, rebuild the frequency features as prior-only running counters, and re-tune thresholds against
-            the bank's real cost-of-fraud figures.
-          </p>
+          <button type="button" class="inline-disclosure" id="about-toggle">Read the full methodology notes</button>
+          <div class="disclosure-panel" id="about-panel-detail" style="display:none">
+            <p>
+              The ensemble — Isolation Forest, LOF, One-Class SVM, Elliptic Envelope, DBSCAN, HDBSCAN, K-Means,
+              GMM, Autoencoder, VAE and an LSTM Autoencoder — is combined by percentile aggregation into a single
+              score in (0,1). The two review tiers are the 99th percentile (priority) and 95th percentile
+              (standard) of that score. A cost-optimal blocking threshold requires counting false negatives,
+              which requires knowing which <em>unflagged</em> transactions are fraud — unknowable without a label.
+            </p>
+            <p>
+              This feature set is built from <strong>population-level statistics</strong> (global device / IP /
+              merchant / account frequency counts, a top-5% amount flag, a location frequency encoding), with no
+              per-account history or novelty flags — it can ask "is this unusual in the population" but not "is
+              this unusual for this specific customer". Account takeover is only partially detectable here.
+            </p>
+            <p>
+              The dataset is also far smaller than a production deployment would see (2,512 transactions, 495
+              accounts, 6.88/day), and the 5% contamination rate used to tune the detectors is a documented
+              assumption, not a measured fraud rate. Before production use: validate against investigator-labelled
+              cases, rebuild the frequency features as prior-only running counters, and re-tune thresholds against
+              the bank's real cost-of-fraud figures.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -325,11 +341,34 @@
 
       <!-- ================= UPLOAD & PREDICT ================= -->
       <section class="page" id="page-upload">
-        <div class="card">
-          <p class="card-title">Score a new batch of transactions</p>
-          <p class="card-subtitle">Upload a CSV of up to 5,000 transactions. Two formats are accepted: the raw transaction log (TransactionID, AccountID, TransactionAmount, TransactionDate, TransactionType, Location, DeviceID, IP Address, MerchantID, Channel, CustomerAge, CustomerOccupation, TransactionDuration, LoginAttempts, AccountBalance — scored with the leakage-fixed v1 XGBoost pipeline), or the pre-engineered 18-feature matrix used elsewhere in this dashboard (scored with the same Isolation Forest + Autoencoder models as the Scenario Simulator).</p>
-          <form id="upload-form" class="filter-bar" style="margin-bottom:0">
-            <input class="input" type="file" id="upload-file-input" accept=".csv" required />
+        <div class="card upload-card">
+          <div class="card-title-row">
+            <p class="card-title">Score a new batch of transactions</p>
+            <span class="upload-card-icon" id="upload-card-icon"></span>
+          </div>
+          <p class="card-subtitle">
+            Up to 5,000 rows. Two formats accepted — the raw transaction log, or the pre-engineered
+            18-feature matrix. <button type="button" class="inline-disclosure" id="upload-format-toggle">Format details</button>
+          </p>
+          <div class="disclosure-panel" id="upload-format-panel" style="display:none">
+            <strong>Raw transaction log</strong> — TransactionID, AccountID, TransactionAmount, TransactionDate, TransactionType,
+            Location, DeviceID, IP Address, MerchantID, Channel, CustomerAge, CustomerOccupation, TransactionDuration,
+            LoginAttempts, AccountBalance. Scored with the leakage-fixed v1 XGBoost pipeline.<br />
+            <strong>Pre-engineered matrix</strong> — the 18-feature format used elsewhere in this dashboard. Scored with the
+            same Isolation Forest + Autoencoder models as the Scenario Simulator.
+          </div>
+          <form id="upload-form" class="upload-form">
+            <input type="file" id="upload-file-input" accept=".csv" class="upload-native-input" />
+            <label for="upload-file-input" class="dropzone" id="upload-dropzone">
+              <span class="dropzone-icon" id="upload-dropzone-icon"></span>
+              <span class="dropzone-text"><strong>Click to upload</strong> or drag a CSV file here</span>
+              <span class="dropzone-hint">.csv &middot; up to 5,000 rows</span>
+            </label>
+            <div class="upload-file-chip" id="upload-file-chip" style="display:none">
+              <span class="upload-file-chip-icon" id="upload-file-chip-icon"></span>
+              <span class="upload-file-chip-name" id="upload-file-chip-name"></span>
+              <button type="button" class="upload-file-chip-clear" id="upload-file-clear" aria-label="Remove selected file"></button>
+            </div>
             <button class="btn btn-primary" type="submit" id="upload-predict-btn">Predict</button>
           </form>
           <p class="card-subtitle section-gap" id="upload-status"></p>
@@ -351,6 +390,46 @@
         </div>
       </section>
 
+      <!-- ================= PREDICTION HISTORY ================= -->
+      <section class="page" id="page-history">
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <p class="card-title">Every Upload &amp; Predict run</p>
+              <p class="card-subtitle" id="history-subtitle" style="margin-bottom:0">Newest first. Click a row to open its full per-transaction results.</p>
+            </div>
+            <button class="btn" type="button" id="history-refresh-btn">Refresh</button>
+          </div>
+          <div class="table-wrap section-gap"><table class="data-table" id="table-history">
+            <thead><tr>
+              <th>Time</th><th>File</th><th>Model</th><th class="num">Rows</th>
+              <th class="num">Fraud</th><th class="num">Not fraud</th><th class="num">Fraud %</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table></div>
+        </div>
+
+        <div class="card section-gap" id="history-detail-card" style="display:none">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <p class="card-title" id="history-detail-title">Run details</p>
+              <p class="card-subtitle" id="history-detail-subtitle" style="margin-bottom:0"></p>
+            </div>
+            <button class="btn" type="button" id="history-detail-close-btn">Close</button>
+          </div>
+          <div class="grid grid-cols-2 section-gap">
+            <div class="kpi-tile"><p class="kpi-label">Predicted fraud</p><div class="kpi-value" id="history-detail-fraud-pct" style="color:var(--status-critical)"></div></div>
+            <div class="kpi-tile"><p class="kpi-label">Predicted not fraud</p><div class="kpi-value" id="history-detail-not-fraud-pct" style="color:var(--status-good)"></div></div>
+          </div>
+          <div class="table-wrap section-gap"><table class="data-table" id="table-history-detail">
+            <thead><tr>
+              <th>Transaction ID</th><th>Account ID</th><th>Date</th><th class="num">Amount</th><th class="num">Fraud %</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table></div>
+        </div>
+      </section>
+
       <!-- ================= ACCOUNT SCENARIO SIMULATOR ================= -->
       <section class="page" id="page-simulator">
         <div class="simulator-banner">
@@ -358,67 +437,66 @@
           <span id="simulator-banner-text">Secondary tool — vary one real account's transaction and see how the score moves.</span>
         </div>
 
-        <div class="card" style="margin-bottom:16px">
-          <p class="card-title">Why this is not a free-form "what-if"</p>
-          <p class="card-subtitle" id="simulator-note" style="line-height:1.6"></p>
+        <button type="button" class="inline-disclosure" id="simulator-note-toggle" style="margin-bottom:16px">Why can't I enter a brand-new transaction?</button>
+        <div class="card" id="simulator-note-panel" style="display:none; margin-bottom:16px">
+          <p id="simulator-note" style="margin:0; font-size:12.6px; color:var(--text-secondary); line-height:1.6"></p>
         </div>
 
         <div class="simulator-layout">
           <div class="card">
             <p class="card-title">Vary a transaction for an existing account</p>
-            <form id="simulator-form" class="form-grid">
+            <form id="simulator-form" class="form-grid" autocomplete="off">
               <div class="form-field">
                 <label for="sim-account">Account ID (required — must exist in the data)</label>
-                <input class="input" list="sim-account-list" id="sim-account" placeholder="e.g. AC00454" required />
-                <datalist id="sim-account-list"></datalist>
+                <input class="input" id="sim-account" placeholder="e.g. AC00454" required  autocomplete="off" />
               </div>
               <div class="form-field">
                 <label for="sim-amount">Transaction amount</label>
-                <input class="input" type="number" id="sim-amount" min="0.01" step="0.01" value="150" required />
+                <input class="input" type="number" id="sim-amount" step="any" value="150" required autocomplete="off" />
               </div>
               <div class="form-field">
                 <label for="sim-balance">Account balance</label>
-                <input class="input" type="number" id="sim-balance" min="0" step="0.01" value="5000" required />
+                <input class="input" type="number" id="sim-balance" step="any" value="5000" required autocomplete="off" />
               </div>
               <div class="form-field">
                 <label for="sim-type">Transaction type</label>
-                <select class="select" id="sim-type"><option>Debit</option><option>Credit</option></select>
+                <input class="input" id="sim-type" value="Debit" required  autocomplete="off" />
               </div>
               <div class="form-field">
                 <label for="sim-channel">Channel</label>
-                <select class="select" id="sim-channel"><option>ATM</option><option>Online</option><option>Branch</option></select>
+                <input class="input" id="sim-channel" value="ATM" required  autocomplete="off" />
               </div>
               <div class="form-field">
                 <label for="sim-occupation">Customer occupation</label>
-                <select class="select" id="sim-occupation"></select>
+                <input class="input" id="sim-occupation" placeholder="e.g. Engineer" required  autocomplete="off" />
               </div>
               <div class="form-field">
                 <label for="sim-age">Customer age</label>
-                <input class="input" type="number" id="sim-age" min="18" max="100" value="35" required />
+                <input class="input" type="number" id="sim-age" step="any" value="35" required autocomplete="off" />
               </div>
               <div class="form-field">
                 <label for="sim-duration">Transaction duration (seconds)</label>
-                <input class="input" type="number" id="sim-duration" min="1" value="90" required />
+                <input class="input" type="number" id="sim-duration" step="any" value="90" required autocomplete="off" />
               </div>
               <div class="form-field">
                 <label for="sim-login">Login attempts</label>
-                <input class="input" type="number" id="sim-login" min="1" max="10" value="1" required />
+                <input class="input" type="number" id="sim-login" step="any" value="1" required autocomplete="off" />
               </div>
               <div class="form-field">
-                <label for="sim-location">Location <span class="freq-hint">real frequency used</span></label>
-                <select class="select" id="sim-location"></select>
+                <label for="sim-location">Location</label>
+                <input class="input" id="sim-location" placeholder="type a real location" required  autocomplete="off" />
               </div>
               <div class="form-field">
-                <label for="sim-device">Device ID <span class="freq-hint">real frequency used</span></label>
-                <select class="select" id="sim-device"></select>
+                <label for="sim-device">Device ID</label>
+                <input class="input" id="sim-device" placeholder="type a real device ID" required  autocomplete="off" />
               </div>
               <div class="form-field">
-                <label for="sim-ip">IP address <span class="freq-hint">real frequency used</span></label>
-                <select class="select" id="sim-ip"></select>
+                <label for="sim-ip">IP address</label>
+                <input class="input" id="sim-ip" placeholder="type a real IP address" required  autocomplete="off" />
               </div>
               <div class="form-field">
-                <label for="sim-merchant">Merchant ID <span class="freq-hint">real frequency used</span></label>
-                <select class="select" id="sim-merchant"></select>
+                <label for="sim-merchant">Merchant ID</label>
+                <input class="input" id="sim-merchant" placeholder="type a real merchant ID" required  autocomplete="off" />
               </div>
               <div class="form-actions">
                 <button class="btn btn-primary" type="submit">Score this scenario</button>

@@ -244,9 +244,9 @@ Final Approve/Review/Block counts on the 503-row test fold, using the VAL-select
 
 ---
 
-## Stage 7 — Live Scoring (Argus dashboard, "Upload & Predict")
+## Stage 7 — Live Scoring (Bank Transaction Fraud & Anomaly Detection dashboard, "Upload & Predict")
 
-There is no standalone demo app for Pipeline 1 anymore — live scoring is served from the Argus dashboard
+There is no standalone demo app for Pipeline 1 anymore — live scoring is served from the Bank Transaction Fraud & Anomaly Detection dashboard
 (`dashboard/backend/api_server.py`, `POST /api/upload/predict`) instead. It engineers a batch of new transactions'
 features with `fe_utils.transform_batch_new()` — built on the same per-row logic as `transform_new()`, so
 training-time and live-scoring feature engineering can't drift apart — scores them with the Stage 6-selected

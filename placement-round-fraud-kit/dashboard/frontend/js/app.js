@@ -1,4 +1,4 @@
-/* Argus dashboard -- single-page app wiring. No framework, no build step.
+/* Bank Transaction Fraud & Anomaly Detection dashboard -- single-page app wiring. No framework, no build step.
  * Wired to the research_v2 pipeline (teammate 18-feature matrix): risk score is
  * `ensemble_percentile_average`, tiers are the Phase 13 (v2) percentile cutoffs,
  * and explanations are the precomputed Isolation Forest / Autoencoder SHAP rows. */
@@ -10,6 +10,7 @@ const NAV_META = {
   comparison: { label: "Model Comparison", icon: "comparison", title: "Model Comparison", subtitle: "Twelve unsupervised models on one shared feature matrix" },
   explainability: { label: "Explainability", icon: "explainability", title: "Explainability", subtitle: "Two structurally different views of why a transaction scores high" },
   upload: { label: "Upload & Predict", icon: "upload", title: "Upload & Predict", subtitle: "Score a new CSV batch against the leakage-fixed XGBoost v1 pipeline" },
+  history: { label: "Prediction History", icon: "history", title: "Prediction History", subtitle: "Every past Upload & Predict run, newest first" },
   simulator: { label: "Scenario Simulator", icon: "simulator", title: "Account Scenario Simulator", subtitle: "Secondary tool -- vary one real account's transaction" },
 };
 
@@ -78,11 +79,24 @@ function showToast(msg) {
 }
 const num = (v, d = 3) => (v === null || v === undefined ? "—" : Number(v).toFixed(d));
 
+const AVATAR_PALETTE = [
+  "--series-1-blue", "--series-2-orange", "--series-3-aqua", "--series-4-yellow",
+  "--series-5-magenta", "--series-6-green", "--series-7-violet", "--series-8-red",
+];
+function avatarHtml(id) {
+  const str = String(id || "?");
+  const label = str.replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?";
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+  const varName = AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
+  return `<span class="row-avatar" style="background:color-mix(in srgb, var(${varName}) 16%, transparent); color:var(${varName})">${Fmt.escapeHtml(label)}</span>`;
+}
+
 function txRowHtml(tx, includeType) {
   const typeCell = includeType ? `<td>${Fmt.escapeHtml(tx.txn_type)}</td>` : "";
   return `<tr data-id="${Fmt.escapeHtml(tx.transaction_id)}">
     <td>${Fmt.escapeHtml(tx.transaction_id)}</td>
-    <td>${Fmt.escapeHtml(tx.account_id)}</td>
+    <td><div class="cell-with-avatar">${avatarHtml(tx.account_id)}<span>${Fmt.escapeHtml(tx.account_id)}</span></div></td>
     <td>${Fmt.dateTime(tx.date)}</td>
     <td class="num tabular">${Fmt.money(tx.amount)}</td>
     <td>${Fmt.escapeHtml(tx.channel)}</td>
@@ -112,10 +126,40 @@ async function loadOverview() {
     document.getElementById("tier-distribution-subtitle").textContent =
       `${Fmt.int(overviewData.total_transactions)} transactions — priority at ensemble score ≥ ${overviewData.priority_threshold} (99th pct), ` +
       `standard at ≥ ${overviewData.standard_threshold} (95th pct). No automatic block tier.`;
+    renderTrend("total", computeTrend(overviewData.timeseries, "count"), "neutral");
+    renderTrend("flagrate", computeTrend(overviewData.timeseries, "flag_rate_pct"), "lower-is-better");
   }
   renderOverviewCharts(overviewData);
   const tbody = document.querySelector("#table-top-risk tbody");
   tbody.innerHTML = overviewData.top_risk.map((tx) => txRowHtml(tx, false)).join("") || emptyRow(7);
+}
+
+// Compares the trailing window of daily values against the equal-length
+// window before it -- real, derived from the same timeseries the chart
+// below plots, never a fabricated number.
+function computeTrend(ts, key) {
+  if (!ts || ts.length < 4) return null;
+  const window = Math.max(1, Math.min(7, Math.floor(ts.length / 2)));
+  const recent = ts.slice(-window);
+  const prior = ts.slice(-2 * window, -window);
+  if (!prior.length) return null;
+  const avg = (arr) => arr.reduce((a, d) => a + d[key], 0) / arr.length;
+  const recentAvg = avg(recent);
+  const priorAvg = avg(prior);
+  if (!priorAvg) return null;
+  return { pctChange: ((recentAvg - priorAvg) / priorAvg) * 100, days: window };
+}
+
+function renderTrend(kpiKey, trend, mode) {
+  const el = document.querySelector(`[data-trend="${kpiKey}"]`);
+  if (!el) return;
+  if (!trend || !isFinite(trend.pctChange)) { el.classList.remove("visible"); return; }
+  const up = trend.pctChange > 0;
+  const arrow = up ? Icons.caretUp : Icons.caretDown;
+  const cls = mode === "neutral" ? "trend-neutral" : (up ? "trend-up" : "trend-down");
+  el.classList.remove("trend-up", "trend-down", "trend-neutral");
+  el.classList.add("visible", cls);
+  el.innerHTML = `${arrow} ${Math.abs(trend.pctChange).toFixed(1)}% <span class="kpi-trend-period">vs prior ${trend.days}d</span>`;
 }
 
 function renderOverviewCharts(data) {
@@ -128,10 +172,19 @@ function renderOverviewCharts(data) {
     data: data.tier_distribution.map((t) => ({ label: t.tier, value: t.count, color: tierColor[t.code] })),
     valueFormatter: Fmt.int,
   });
-  const ts = data.timeseries.map((d) => ({ x: new Date(d.date).getTime(), y: d.count }));
-  Charts.renderLineChart(document.getElementById("chart-timeseries"), {
-    data: ts, color: Charts.cssVar("--series-1-blue"), area: true,
-    xFormatter: (v) => Fmt.dateShort(new Date(v).toISOString()), yFormatter: Fmt.int,
+  const tierTotal = data.tier_distribution.reduce((a, t) => a + t.count, 0) || 1;
+  document.getElementById("tier-distribution-legend").innerHTML = data.tier_distribution.map((t) => `
+    <div class="legend-breakdown-row">
+      <span class="legend-breakdown-dot" style="background:${tierColor[t.code]}"></span>
+      <span class="legend-breakdown-label">${Fmt.escapeHtml(t.tier)} (${Fmt.int(t.count)})</span>
+      <span class="legend-breakdown-pct">${((t.count / tierTotal) * 100).toFixed(1)}%</span>
+    </div>`).join("");
+  const ts = data.timeseries.map((d) => ({ x: new Date(d.date).getTime(), alerts: d.flagged, fraud_rate: d.flag_rate_pct }));
+  Charts.renderDualLineChart(document.getElementById("chart-timeseries"), {
+    data: ts,
+    seriesA: { key: "alerts", label: "Alerts", color: Charts.cssVar("--series-1-blue"), formatter: Fmt.int },
+    seriesB: { key: "fraud_rate", label: "Fraud Rate", color: Charts.cssVar("--status-critical"), formatter: (v) => `${v.toFixed(1)}%` },
+    xFormatter: (v) => Fmt.dateShort(new Date(v).toISOString()),
   });
 }
 
@@ -233,7 +286,7 @@ async function loadQueue() {
   tbody.innerHTML = resp.results.map((tx, i) => `<tr data-id="${Fmt.escapeHtml(tx.transaction_id)}">
       <td class="num tabular">${startRank + i}</td>
       <td>${Fmt.escapeHtml(tx.transaction_id)}</td>
-      <td>${Fmt.escapeHtml(tx.account_id)}</td>
+      <td><div class="cell-with-avatar">${avatarHtml(tx.account_id)}<span>${Fmt.escapeHtml(tx.account_id)}</span></div></td>
       <td class="num tabular">${Fmt.money(tx.amount)}</td>
       <td>${riskBadge(tx.risk_tier_code)}</td>
       <td class="num tabular">${Fmt.score(tx.risk_score)}</td>
@@ -426,12 +479,10 @@ async function loadSimulatorOptions() {
   if (simOptions) return;
   try {
     simOptions = await Api.simulatorOptions();
-    fillDatalist("sim-account-list", simOptions.accounts);
-    fillSelect("sim-location", simOptions.locations);
-    fillSelect("sim-occupation", simOptions.occupations);
-    fillSelect("sim-device", simOptions.devices);
-    fillSelect("sim-ip", simOptions.ip_addresses);
-    fillSelect("sim-merchant", simOptions.merchants);
+    // No datalist/autocomplete anywhere in this form by design -- every field
+    // is typed by hand. simOptions is still fetched for the note text below,
+    // the high-amount threshold, and to validate typed values against real
+    // data server-side on submit.
     document.getElementById("simulator-note").textContent = simOptions.note;
     document.getElementById("simulator-banner-text").textContent =
       `Secondary tool — vary one real account's transaction and see how the score moves. ` +
@@ -561,7 +612,61 @@ function uploadRowHtml(r) {
   </tr>`;
 }
 
+function updateUploadDropzone() {
+  const input = document.getElementById("upload-file-input");
+  const file = input.files && input.files[0];
+  const dropzone = document.getElementById("upload-dropzone");
+  const chip = document.getElementById("upload-file-chip");
+  if (file) {
+    document.getElementById("upload-file-chip-name").textContent = file.name;
+    chip.style.display = "flex";
+    dropzone.style.display = "none";
+  } else {
+    chip.style.display = "none";
+    dropzone.style.display = "flex";
+  }
+}
+
+function wireUploadDropzone() {
+  document.getElementById("upload-card-icon").innerHTML = Icons.upload;
+  document.getElementById("upload-dropzone-icon").innerHTML = Icons.upload;
+  document.getElementById("upload-file-chip-icon").innerHTML = Icons.file;
+  document.getElementById("upload-file-clear").innerHTML = Icons.close;
+
+  const input = document.getElementById("upload-file-input");
+  const dropzone = document.getElementById("upload-dropzone");
+
+  input.addEventListener("change", updateUploadDropzone);
+
+  document.getElementById("upload-file-clear").addEventListener("click", () => {
+    input.value = "";
+    updateUploadDropzone();
+    document.getElementById("upload-status").textContent = "";
+    document.getElementById("upload-results-card").style.display = "none";
+  });
+
+  ["dragenter", "dragover"].forEach((evt) => {
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+  });
+  ["dragleave", "dragend"].forEach((evt) => {
+    dropzone.addEventListener(evt, () => dropzone.classList.remove("dragover"));
+  });
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("dragover");
+    const dropped = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (dropped) {
+      input.files = e.dataTransfer.files;
+      updateUploadDropzone();
+    }
+  });
+}
+
 function wireUploadForm() {
+  wireUploadDropzone();
   document.getElementById("upload-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const input = document.getElementById("upload-file-input");
@@ -595,6 +700,70 @@ function wireUploadForm() {
       btn.disabled = false;
       btn.textContent = "Predict";
     }
+  });
+}
+
+// ---------------------------------------------------------------------
+// prediction history
+// ---------------------------------------------------------------------
+let historyEntries = [];
+
+function historyRowHtml(entry) {
+  const highRisk = entry.fraud_rate_pct >= 20;
+  const pctStyle = highRisk ? ` style="color:var(--status-critical);font-weight:600"` : "";
+  return `<tr data-history-id="${Fmt.escapeHtml(entry.id || "")}" style="cursor:pointer">
+    <td class="tabular">${Fmt.escapeHtml(new Date(entry.timestamp).toLocaleString())}</td>
+    <td>${Fmt.escapeHtml(entry.filename)}</td>
+    <td>${Fmt.escapeHtml(entry.model)}</td>
+    <td class="num tabular">${Fmt.int(entry.total)}</td>
+    <td class="num tabular">${Fmt.int(entry.fraud_count)}</td>
+    <td class="num tabular">${Fmt.int(entry.not_fraud_count)}</td>
+    <td class="num tabular"${pctStyle}>${entry.fraud_rate_pct.toFixed(2)}%</td>
+  </tr>`;
+}
+
+async function loadHistory() {
+  try {
+    const resp = await Api.uploadHistory();
+    historyEntries = resp.entries;
+    document.getElementById("history-subtitle").textContent = historyEntries.length
+      ? `${Fmt.int(historyEntries.length)} run(s) recorded, newest first. Click a row to open its full per-transaction results.`
+      : "No Upload & Predict runs recorded yet -- score a CSV from the Upload & Predict page and it will show up here.";
+    document.querySelector("#table-history tbody").innerHTML =
+      historyEntries.map(historyRowHtml).join("") || emptyRow(7);
+    document.getElementById("history-detail-card").style.display = "none";
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+function openHistoryDetail(id) {
+  const entry = historyEntries.find((e) => e.id === id);
+  const card = document.getElementById("history-detail-card");
+  if (!entry || !entry.results) {
+    showToast("No saved per-transaction detail for this run (it predates this feature).");
+    card.style.display = "none";
+    return;
+  }
+  document.getElementById("history-detail-title").textContent = entry.filename;
+  document.getElementById("history-detail-subtitle").textContent =
+    `${new Date(entry.timestamp).toLocaleString()} -- ${Fmt.int(entry.total)} transactions -- model: ${entry.model}`;
+  document.getElementById("history-detail-fraud-pct").textContent = `${entry.fraud_rate_pct.toFixed(2)}%`;
+  document.getElementById("history-detail-not-fraud-pct").textContent = `${entry.not_fraud_rate_pct.toFixed(2)}%`;
+  document.querySelector("#table-history-detail tbody").innerHTML =
+    entry.results.map(uploadRowHtml).join("") || emptyRow(5);
+  card.style.display = "block";
+  card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function wireHistoryControls() {
+  document.getElementById("history-refresh-btn").addEventListener("click", loadHistory);
+  document.getElementById("history-detail-close-btn").addEventListener("click", () => {
+    document.getElementById("history-detail-card").style.display = "none";
+  });
+  document.querySelector("#table-history tbody").addEventListener("click", (e) => {
+    const row = e.target.closest("tr[data-history-id]");
+    if (row) openHistoryDetail(row.dataset.historyId);
   });
 }
 
@@ -707,6 +876,7 @@ function populateNav() {
   document.getElementById("explorer-next").innerHTML = Icons.chevronRight;
   document.getElementById("queue-prev").innerHTML = Icons.chevronLeft;
   document.getElementById("queue-next").innerHTML = Icons.chevronRight;
+  document.querySelectorAll("[data-kpi-icon]").forEach((el) => { el.innerHTML = Icons[el.dataset.kpiIcon]; });
 }
 
 function showPage(page) {
@@ -722,6 +892,7 @@ function showPage(page) {
   else if (page === "queue") loadQueue();
   else if (page === "comparison") loadComparison();
   else if (page === "explainability") loadExplainability();
+  else if (page === "history") loadHistory();
   else if (page === "simulator") loadSimulatorOptions();
 }
 
@@ -732,31 +903,28 @@ function rerenderCurrentPageCharts() {
   else if (currentPage === "simulator" && lastSimResult) renderSimCharts(lastSimResult);
 }
 
-function applyTheme(theme) {
-  document.documentElement.classList.toggle("light", theme === "light");
-  document.getElementById("theme-icon").innerHTML = theme === "light" ? Icons.moon : Icons.sun;
-  document.getElementById("theme-label").textContent = theme === "light" ? "Dark" : "Light";
-  localStorage.setItem("argus-theme", theme);
-  rerenderCurrentPageCharts();
-}
-
-function wireThemeToggle() {
-  let theme = localStorage.getItem("argus-theme") || "dark";
-  applyTheme(theme);
-  document.getElementById("theme-toggle").addEventListener("click", () => {
-    theme = theme === "dark" ? "light" : "dark";
-    applyTheme(theme);
+function wireDisclosureToggle(btnId, panelId, openLabel, closeLabel) {
+  const btn = document.getElementById(btnId);
+  const panel = document.getElementById(panelId);
+  if (!btn || !panel) return;
+  btn.addEventListener("click", () => {
+    const open = panel.style.display !== "none";
+    panel.style.display = open ? "none" : "block";
+    btn.textContent = open ? openLabel : closeLabel;
   });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   populateNav();
-  wireThemeToggle();
   wireExplorerControls();
   wireQueueControls();
   wireSimulatorForm();
   wireUploadForm();
+  wireHistoryControls();
   wireDrawer();
+  wireDisclosureToggle("upload-format-toggle", "upload-format-panel", "Format details", "Hide format details");
+  wireDisclosureToggle("about-toggle", "about-panel-detail", "Read the full methodology notes", "Hide the methodology notes");
+  wireDisclosureToggle("simulator-note-toggle", "simulator-note-panel", "Why can't I enter a brand-new transaction?", "Hide explanation");
   showPage("overview");
   window.addEventListener("resize", Fmt.debounce(rerenderCurrentPageCharts, 200));
 });

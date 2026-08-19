@@ -74,7 +74,7 @@ This phase describes how the pipeline recommended in Phase 14 (v2) (`research_v2
                                           │
                           ┌───────────────▼──────────────────────┐
                           │  STAGE 7 — INVESTIGATION DASHBOARD    │
-                          │  Argus (dashboard/)                   │
+                          │  Bank Transaction Fraud & Anomaly Detection (dashboard/)                   │
                           │  FastAPI + static HTML/CSS/JS         │
                           │  serves tiers, queue, SHAP, model     │
                           │  comparison — now wired to THIS       │
@@ -124,7 +124,7 @@ Four of the 18 features — `account_frequency`, `device_frequency`, `ip_frequen
 This has three separate implications, which are often conflated:
 
 1. **It is a leakage problem for any evaluation that pretends to be point-in-time.** No Phase 8–13 (v2) result claims to be point-in-time, so nothing already reported is invalidated. But a backtest that scored transactions "as of" their transaction date using these features would be measuring something it should not have known.
-2. **It is a computability problem at inference.** A single fresh transaction has no `account_frequency` until you decide what population to count over. This is not a small implementation detail — it is why the Argus What-if Simulator had to be redesigned rather than repointed (§7.3).
+2. **It is a computability problem at inference.** A single fresh transaction has no `account_frequency` until you decide what population to count over. This is not a small implementation detail — it is why the Bank Transaction Fraud & Anomaly Detection What-if Simulator had to be redesigned rather than repointed (§7.3).
 3. **It is a *drift* problem, and this is the one that differs most from the in-house pipeline.** A frequency encoding is a mapping from a category to a number derived from the population. When the population of devices/merchants/IPs changes — new devices onboard, a merchant closes, an IP range is reallocated — **every previously-seen category's encoded value shifts, even for categories whose own behaviour did not change at all.** The in-house pipeline's equivalent concern was a temporal-export artifact (`PreviousTransactionDate`); this pipeline's is population churn in the frequency encodings. Phase 16 (v2) §2 builds the monitoring around exactly this.
 
 **What a production feature layer must do, and what it costs:**
@@ -141,7 +141,7 @@ This has three separate implications, which are often conflated:
 
 **Honest assessment: none of this real-time feature layer is built.** What exists is the batch path and its verifications. The gap is smaller than it looks for thirteen of the eighteen features and larger than it looks for the five frequency-derived ones.
 
-**One thing that improved while this phase was being written.** Phase 5 (v2) treated two of the features as only approximately recoverable from the raw columns. Both were subsequently recovered **exactly** (Phase 14 v2 §5, Inconsistencies 4 and 5): `TransactionAmount` is `StandardScaler(log1p(raw amount))` and `amount_to_balance_ratio` is `StandardScaler(log1p(amount / (balance + 1)))`. With those two settled, **all 18 features are exactly reproducible from the 16 raw columns**, which turns the table above from a partly-inferred specification into a complete one. It is also what makes the Argus scenario simulator (§7.3) honest rather than approximate — it computes the real feature vector, not a stand-in.
+**One thing that improved while this phase was being written.** Phase 5 (v2) treated two of the features as only approximately recoverable from the raw columns. Both were subsequently recovered **exactly** (Phase 14 v2 §5, Inconsistencies 4 and 5): `TransactionAmount` is `StandardScaler(log1p(raw amount))` and `amount_to_balance_ratio` is `StandardScaler(log1p(amount / (balance + 1)))`. With those two settled, **all 18 features are exactly reproducible from the 16 raw columns**, which turns the table above from a partly-inferred specification into a complete one. It is also what makes the Bank Transaction Fraud & Anomaly Detection scenario simulator (§7.3) honest rather than approximate — it computes the real feature vector, not a stand-in.
 
 **One genuine architectural advantage over the in-house pipeline, worth stating because it cuts the other way.** The in-house 46-feature set needs a per-account *history scan* at inference time (expanding means, rolling windows, time-since-last-transaction, novelty flags) — a read of every prior transaction for that account, or an equivalently complex incrementally-maintained state. This 18-feature set needs only **counter reads**: five integer lookups and a frozen scaler. Counters are dramatically cheaper to maintain, cheaper to keep consistent across replicas, and cheaper to backfill than per-account rolling statistics. The teammate's feature set is, in a real and concrete sense, the more *deployable* of the two — which is a genuine point in its favour that sits alongside, and does not cancel, Phase 5 (v2) §3's finding that it is the less *capable* of the two.
 
@@ -203,7 +203,7 @@ Source: `artifacts_research_v2/threshold_analysis_v2.json`, `threshold_flagged_c
 
 ---
 
-## 7. Stage 6/7 — Explanation and the Argus Investigation Dashboard
+## 7. Stage 6/7 — Explanation and the Bank Transaction Fraud & Anomaly Detection Investigation Dashboard
 
 ### 7.1 Explanation artifacts
 
@@ -213,13 +213,13 @@ Both explainers were run over all 2,512 rows and saved, so serving an explanatio
 - `artifacts_research_v2/shap_autoencoder_v2.csv` — `shap.GradientExplainer` over the `AEErrorWrapper` module, 112.3s for the full dataset, additivity spot-checked at ρ=0.9879. No sign flip needed.
 - `shap_global_importance_comparison_v2.csv`, `shap_local_explanations_v2.json` — the global ranking and the four worked local explanations.
 
-### 7.2 Argus — what it is, and what changed
+### 7.2 Bank Transaction Fraud & Anomaly Detection — what it is, and what changed
 
-Argus (`dashboard/`) is a browse-first fraud-analytics console: a FastAPI backend (`dashboard/backend/api_server.py`) that loads artifacts and serves both the API and a dependency-free static frontend (`dashboard/frontend/`, plain HTML/CSS/JS, no build step, no CDN, no external fonts — it runs fully offline). It retrains nothing.
+Bank Transaction Fraud & Anomaly Detection (`dashboard/`) is a browse-first fraud-analytics console: a FastAPI backend (`dashboard/backend/api_server.py`) that loads artifacts and serves both the API and a dependency-free static frontend (`dashboard/frontend/`, plain HTML/CSS/JS, no build step, no CDN, no external fonts — it runs fully offline). It retrains nothing.
 
-**Argus was originally wired to the v1 pipeline** (`artifacts/labeled.csv`, `xgb_model.json`, `reference.pkl`, `thresholds.json`), showing risk tiers derived from a supervised XGBoost model trained to reproduce a 4-detector unsupervised ensemble. **It has now been repointed at this pipeline.** The visual design, branding and page structure are unchanged — this was a data-source swap, not a redesign.
+**Bank Transaction Fraud & Anomaly Detection was originally wired to the v1 pipeline** (`artifacts/labeled.csv`, `xgb_model.json`, `reference.pkl`, `thresholds.json`), showing risk tiers derived from a supervised XGBoost model trained to reproduce a 4-detector unsupervised ensemble. **It has now been repointed at this pipeline.** The visual design, branding and page structure are unchanged — this was a data-source swap, not a redesign.
 
-What Argus now serves:
+What Bank Transaction Fraud & Anomaly Detection now serves:
 
 | Surface | Source (this pipeline) |
 |---|---|
@@ -260,7 +260,7 @@ python -m uvicorn backend.api_server:app --port 8000
 
 The backend serves the frontend itself via FastAPI `StaticFiles`, so there is no CORS configuration and nothing else to start. Requirements beyond the pipeline's own (`requirements.txt`): `fastapi`, `uvicorn`. No paid services, no external network calls.
 
-### 7.5 The one thing Argus produces that nothing else in this project does
+### 7.5 The one thing Bank Transaction Fraud & Anomaly Detection produces that nothing else in this project does
 
 Investigator decisions. `dashboard/backend/queue_state.json` accumulates Approve / Escalate / Block actions per transaction. **This is the only mechanism in the entire project capable of generating labelled data**, and every limitation in every report of this pipeline traces back to not having any. It should be treated as a first-class data product from day one: durably stored, versioned, and joined back to the score that produced the alert — because a year of it is what makes a supervised model, a real precision/recall number, and a genuine cost-optimised threshold possible.
 
@@ -347,5 +347,5 @@ The methodology. The verification pattern (§3.1), the two-explainer requirement
 - **Deployed score**: `ensemble_percentile_average`, Option B member set, nightly batch.
 - **Deployed thresholds**: 0.9510 (priority) / 0.8671 (standard). No block tier.
 - **Explanation layer**: both SHAP artifacts, served side by side, precomputed.
-- **Investigator surface**: Argus, now reading this pipeline's artifacts (§7.2), with an honestly-rebuilt Account Scenario Simulator (§7.3).
+- **Investigator surface**: Bank Transaction Fraud & Anomaly Detection, now reading this pipeline's artifacts (§7.2), with an honestly-rebuilt Account Scenario Simulator (§7.3).
 - **The three things Phase 16 must monitor hardest**, all identified above: (1) frequency-encoding drift as the device/merchant/IP population churns (§3.2), (2) the frozen training-derived constants that fail silently if recomputed (§9), and (3) silent member dropout in an ensemble whose score is defined by its member list (§9).

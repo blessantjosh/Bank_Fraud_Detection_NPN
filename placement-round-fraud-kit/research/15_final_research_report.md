@@ -346,9 +346,9 @@ All five are labelling or transcription errors over correct underlying numbers. 
 
 **Medium-term, weeks:**
 
-5. **Migrate the Argus dashboard onto the Phase 12 ensemble score** (Phase 15 §7.2). Steps 1, 2 and 4 of that migration are a day's work and would remove the supervised XGBoost layer entirely — eliminating the label circularity described in §12.2 from what an analyst actually sees.
+5. **Migrate the Bank Transaction Fraud & Anomaly Detection dashboard onto the Phase 12 ensemble score** (Phase 15 §7.2). Steps 1, 2 and 4 of that migration are a day's work and would remove the supervised XGBoost layer entirely — eliminating the label circularity described in §12.2 from what an analyst actually sees.
 6. **Show both SHAP views in the investigation UI.** Given ρ = −0.157 between the two models' importance rankings, showing one is showing half the picture.
-7. **Persist analyst verdicts in a joinable schema.** The Argus Investigation Queue already writes Approve/Escalate/Block decisions to `dashboard/backend/queue_state.json` on first use. That is not a fraud label, but it is human, model-independent, and cumulative — and it is the cheapest available route out of the circularity problem.
+7. **Persist analyst verdicts in a joinable schema.** The Bank Transaction Fraud & Anomaly Detection Investigation Queue already writes Approve/Escalate/Block decisions to `dashboard/backend/queue_state.json` on first use. That is not a fraud label, but it is human, model-independent, and cumulative — and it is the cheapest available route out of the circularity problem.
 8. **Enable HDBSCAN's `prediction_data=True`** and revalidate. It is the highest-weighted member of the weighted-average scheme (0.113) and is currently excluded from the online path solely because a fit-time flag was not set.
 
 **Longer-term, requiring more data or infrastructure:**

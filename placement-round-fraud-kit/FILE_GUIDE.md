@@ -31,13 +31,13 @@ Every file in this project, what it is, and why it's there. Dataset throughout: 
 A working, leakage-free pipeline: engineer features (train-only stats) → 4 unsupervised detectors, fit on train
 only, vote → confidence-tiered labels → train XGBoost (x2) + Random Forest on the train fold → compare all three →
 pick a cost-based threshold on validation → evaluate once on test → explain with SHAP → serve live scoring from the
-Argus dashboard's "Upload & Predict" page (`dashboard/backend/api_server.py`, no standalone demo app). See
+Bank Transaction Fraud & Anomaly Detection dashboard's "Upload & Predict" page (`dashboard/backend/api_server.py`, no standalone demo app). See
 `ML_AUDIT_AFTER_FIX.md` for the full before/after leakage audit.
 
 | File | What it is |
 |---|---|
 | `config.py` | Shared file paths and constants for the whole v1 pipeline (one place to edit, not per-script) |
-| `fe_utils.py` | The feature-engineering logic, split into fit-on-train / apply-to-any-fold steps — used both to build the training set AND to score brand-new transactions live (single-row `transform_new`, batch-CSV `transform_batch_new`) from the Argus dashboard, so training and live-scoring never drift apart |
+| `fe_utils.py` | The feature-engineering logic, split into fit-on-train / apply-to-any-fold steps — used both to build the training set AND to score brand-new transactions live (single-row `transform_new`, batch-CSV `transform_batch_new`) from the Bank Transaction Fraud & Anomaly Detection dashboard, so training and live-scoring never drift apart |
 | `01_feature_engineering.py` | Chronological train/val/test split, then builds the 20-feature matrix (every fitted statistic/encoder/scaler comes from the train fold only) |
 | `02_anomaly_ensemble.py` | Fits 4 unsupervised detectors (Isolation Forest, LOF via `novelty=True`, One-Class SVM, Elliptic Envelope) on the train fold only, then predicts out-of-sample on val/test |
 | `03_confidence_labeling.py` | Turns the vote count into High/Medium/Normal risk tiers and a binary fraud label, per fold |
@@ -63,7 +63,7 @@ Argus dashboard's "Upload & Predict" page (`dashboard/backend/api_server.py`, no
 | `xgb_model.json` | XGBoost trained with SMOTE |
 | `xgb_model_classweight.json` | XGBoost trained with class-weighting (no synthetic data) |
 | `random_forest_model.pkl` | Random Forest (class_weight="balanced") — the new third model added for comparison |
-| `xgb_model_best.json` | Copy of whichever XGBoost variant Stage 6 measured as primary — this is what the Argus dashboard's "Upload & Predict" page loads |
+| `xgb_model_best.json` | Copy of whichever XGBoost variant Stage 6 measured as primary — this is what the Bank Transaction Fraud & Anomaly Detection dashboard's "Upload & Predict" page loads |
 | `best_model_choice.json` | Which XGBoost variant was picked as primary, and the measured PR-AUC reasoning |
 | `model_comparison.csv` / `.json` | Precision/recall/F1/ROC-AUC/PR-AUC/FP/FN/TP/TN for all 3 models, on both val and test |
 | `final_test_evaluation.json` | The one-time final test-set numbers at both the default and VAL-selected thresholds, plus Approve/Review/Block counts |
@@ -92,7 +92,7 @@ This is the full 17-phase build (some phases share a report file). **Start with 
 | `10_ensemble_scoring.md` | 12 | 4 ways to combine all 12 models into one score (weighted average, rank aggregation, percentile aggregation, a stacking proxy) — compared and one recommended |
 | `11_threshold_optimization.md` | 13 | Percentile thresholds (95th/97th/99th/99.5th) and statistical thresholds (mean+3σ, IQR) — with resulting flagged counts |
 | `12_final_model_selection.md` | 14 | A full decision matrix scoring every model + ensemble strategy on detection quality, stability, interpretability, cost, scalability, deployment readiness — with the final recommendation and reasoning |
-| `13_deployment_architecture.md` | 15 | The real production pipeline design (ingestion → feature engineering → scoring → alerting → the Argus dashboard), referencing this project's actual code, not generic architecture |
+| `13_deployment_architecture.md` | 15 | The real production pipeline design (ingestion → feature engineering → scoring → alerting → the Bank Transaction Fraud & Anomaly Detection dashboard), referencing this project's actual code, not generic architecture |
 | `14_monitoring_framework.md` | 16 | Drift monitoring plan — PSI/KS-statistic thresholds, concept/feature/model/alert-volume drift, concrete trigger rules |
 | `15_final_research_report.md` | 17 | **The standalone executive summary** — reads on its own, covers everything, this is the one to hand a stakeholder or judge |
 
@@ -150,7 +150,7 @@ Grouped by what they support (all CSV/JSON unless noted):
 
 ---
 
-## `dashboard/` — Argus, the web dashboard
+## `dashboard/` — Bank Transaction Fraud & Anomaly Detection, the web dashboard
 
 | File | What it is |
 |---|---|

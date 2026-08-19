@@ -223,7 +223,7 @@ quantile of `TransactionDate`, not a random draw). Re-running `01` through `06` 
 12. Existing UI/API continued to work at the time of this audit — the then-existing demo app booted and served
     HTTP 200 (verified headless); its identifier-search join was fixed to use `TransactionID` (§ below) since row
     order changed once the split became chronological-then-grouped rather than one global sort. That demo app has
-    since been removed; live scoring is now served from the Argus dashboard's "Upload & Predict" page instead,
+    since been removed; live scoring is now served from the Bank Transaction Fraud & Anomaly Detection dashboard's "Upload & Predict" page instead,
     reusing the same `fe_utils.transform_new`/`transform_batch_new` functions this fix produced. ✅
 13. Model comparison is generated — `artifacts/model_comparison.csv/json`, `artifacts/plots/model_comparison.png`.
     ✅

@@ -381,8 +381,126 @@ const Charts = (() => {
     container.appendChild(svg);
   }
 
+  // -------------------------------------------------------------------
+  // dual-series line chart -- two metrics on independent left/right axes,
+  // shared x-axis, single crosshair driving one tooltip with both values
+  // -------------------------------------------------------------------
+  function renderDualLineChart(container, opts) {
+    const {
+      data, height = 280,
+      seriesA, // { key, label, color, formatter }
+      seriesB, // { key, label, color, formatter }
+      xFormatter = (v) => v, xTickCount = 6,
+    } = opts;
+    container.innerHTML = "";
+    legendRow(container, [
+      { label: seriesA.label, color: seriesA.color },
+      { label: seriesB.label, color: seriesB.color },
+    ]);
+
+    const width = Math.max(container.clientWidth || 480, 320);
+    const pad = { top: 20, right: 52, bottom: 30, left: 48 };
+    const plotW = width - pad.left - pad.right;
+    const plotH = height - pad.top - pad.bottom;
+
+    const xs = data.map((d) => d.x);
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    const aVals = data.map((d) => d[seriesA.key]);
+    const bVals = data.map((d) => d[seriesB.key]);
+    const aMax = niceMax(Math.max(...aVals, 0.001) * 1.2);
+    const bMax = niceMax(Math.max(...bVals, 0.001) * 1.2);
+
+    const xScale = (x) => pad.left + (xMax === xMin ? plotW / 2 : ((x - xMin) / (xMax - xMin)) * plotW);
+    const yScaleA = (y) => pad.top + plotH - (y / aMax) * plotH;
+    const yScaleB = (y) => pad.top + plotH - (y / bMax) * plotH;
+
+    const svg = el("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart-svg" });
+    const gridline = cssVar("--gridline");
+    const baseline = cssVar("--baseline");
+    const muted = cssVar("--text-muted");
+
+    const yTicks = 4;
+    for (let i = 0; i <= yTicks; i++) {
+      const frac = i / yTicks;
+      const y = pad.top + plotH - frac * plotH;
+      svg.appendChild(el("line", {
+        x1: pad.left, x2: width - pad.right, y1: y, y2: y,
+        stroke: i === 0 ? baseline : gridline, "stroke-width": 1,
+        "stroke-dasharray": i === 0 ? "none" : "2,4",
+      }));
+      const leftLabel = el("text", { x: pad.left - 8, y: y + 3, "text-anchor": "end", fill: muted, "font-size": 11, class: "tabular" });
+      leftLabel.textContent = seriesA.formatter(aMax * frac);
+      svg.appendChild(leftLabel);
+      const rightLabel = el("text", { x: width - pad.right + 8, y: y + 3, "text-anchor": "start", fill: muted, "font-size": 11, class: "tabular" });
+      rightLabel.textContent = seriesB.formatter(bMax * frac);
+      svg.appendChild(rightLabel);
+    }
+    for (let i = 0; i <= xTickCount && data.length > 1; i++) {
+      const val = xMin + ((xMax - xMin) / xTickCount) * i;
+      const x = xScale(val);
+      const t = el("text", { x, y: height - pad.bottom + 18, "text-anchor": "middle", fill: muted, "font-size": 11 });
+      t.textContent = xFormatter(val);
+      svg.appendChild(t);
+    }
+
+    function drawSeries(key, color, yScale) {
+      const points = data.map((d) => `${xScale(d.x)},${yScale(d[key])}`).join(" ");
+      svg.appendChild(el("polyline", {
+        points, fill: "none", stroke: color, "stroke-width": 2.25,
+        "stroke-linejoin": "round", "stroke-linecap": "round",
+      }));
+      if (data.length <= 80) {
+        data.forEach((d) => {
+          svg.appendChild(el("circle", { cx: xScale(d.x), cy: yScale(d[key]), r: 4, fill: color, stroke: cssVar("--surface-1"), "stroke-width": 1.5 }));
+        });
+      }
+    }
+    drawSeries(seriesA.key, seriesA.color, yScaleA);
+    drawSeries(seriesB.key, seriesB.color, yScaleB);
+
+    const crosshair = el("line", { x1: 0, x2: 0, y1: pad.top, y2: pad.top + plotH, stroke: muted, "stroke-width": 1, opacity: 0 });
+    const dotA = el("circle", { r: 5, fill: seriesA.color, stroke: cssVar("--surface-1"), "stroke-width": 2, opacity: 0 });
+    const dotB = el("circle", { r: 5, fill: seriesB.color, stroke: cssVar("--surface-1"), "stroke-width": 2, opacity: 0 });
+    svg.appendChild(crosshair);
+    svg.appendChild(dotA);
+    svg.appendChild(dotB);
+
+    const overlay = el("rect", { x: pad.left, y: pad.top, width: Math.max(plotW, 1), height: Math.max(plotH, 1), fill: "transparent", class: "chart-hit" });
+    overlay.addEventListener("mousemove", (e) => {
+      const rect = svg.getBoundingClientRect();
+      const scaleX = width / rect.width;
+      const mouseX = (e.clientX - rect.left) * scaleX;
+      const targetVal = xMin + ((mouseX - pad.left) / plotW) * (xMax - xMin);
+      let nearest = data[0];
+      let bestDist = Infinity;
+      for (const d of data) {
+        const dist = Math.abs(d.x - targetVal);
+        if (dist < bestDist) { bestDist = dist; nearest = d; }
+      }
+      const nx = xScale(nearest.x);
+      crosshair.setAttribute("x1", nx); crosshair.setAttribute("x2", nx); crosshair.setAttribute("opacity", 1);
+      dotA.setAttribute("cx", nx); dotA.setAttribute("cy", yScaleA(nearest[seriesA.key])); dotA.setAttribute("opacity", 1);
+      dotB.setAttribute("cx", nx); dotB.setAttribute("cy", yScaleB(nearest[seriesB.key])); dotB.setAttribute("opacity", 1);
+      showTooltip(
+        `<strong>${Fmt.escapeHtml(xFormatter(nearest.x))}</strong><br>` +
+        `<span style="color:${seriesA.color}">${Fmt.escapeHtml(seriesA.label)}</span>: ${seriesA.formatter(nearest[seriesA.key])}<br>` +
+        `<span style="color:${seriesB.color}">${Fmt.escapeHtml(seriesB.label)}</span>: ${seriesB.formatter(nearest[seriesB.key])}`,
+        e.clientX, e.clientY
+      );
+    });
+    overlay.addEventListener("mouseleave", () => {
+      crosshair.setAttribute("opacity", 0);
+      dotA.setAttribute("opacity", 0);
+      dotB.setAttribute("opacity", 0);
+      hideTooltip();
+    });
+    svg.appendChild(overlay);
+
+    container.appendChild(svg);
+  }
+
   return {
-    renderBarChart, renderGroupedBarChart, renderHBarChart, renderLineChart,
+    renderBarChart, renderGroupedBarChart, renderHBarChart, renderLineChart, renderDualLineChart,
     hideTooltip, cssVar,
   };
 })();

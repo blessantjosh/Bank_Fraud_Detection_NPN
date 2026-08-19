@@ -18,7 +18,7 @@ python 06_evaluation.py
 Each stage reads the previous stage's output from `artifacts/` and writes
 its own — you can re-run any single stage without repeating earlier ones.
 `fe_utils.py` and `config.py` are shared by every stage and by the live
-scoring path (`transform_new`/`transform_batch_new`, used by the Argus
+scoring path (`transform_new`/`transform_batch_new`, used by the Bank Transaction Fraud & Anomaly Detection
 dashboard's "Upload & Predict" page — see `dashboard/README.md`), so
 training-time and live-scoring feature engineering can never drift apart.
 
