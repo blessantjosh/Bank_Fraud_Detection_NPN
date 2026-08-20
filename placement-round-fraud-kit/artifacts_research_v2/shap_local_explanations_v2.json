@@ -52,58 +52,6 @@
           "direction": "pushes score DOWN (more normal)"
         }
       ]
-    },
-    "autoencoder": {
-      "top_contributors": [
-        {
-          "feature": "amount_to_balance_ratio",
-          "shap_value": 1.56977,
-          "raw_feature_value_scaled": 5.6797,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "TransactionAmount",
-          "shap_value": -0.11498,
-          "raw_feature_value_scaled": 1.5807,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "LoginAttempts",
-          "shap_value": 0.09626,
-          "raw_feature_value_scaled": 6.4317,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "AccountBalance",
-          "shap_value": -0.07313,
-          "raw_feature_value_scaled": -1.2283,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "CustomerOccupation_Engineer",
-          "shap_value": 0.04379,
-          "raw_feature_value_scaled": 1.0,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "ip_frequency",
-          "shap_value": 0.03913,
-          "raw_feature_value_scaled": -0.5684,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "CustomerOccupation_Student",
-          "shap_value": 0.03701,
-          "raw_feature_value_scaled": 0.0,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "TransactionDuration",
-          "shap_value": -0.03227,
-          "raw_feature_value_scaled": 0.7771,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        }
-      ]
     }
   },
   "TX000935": {
@@ -157,58 +105,6 @@
           "shap_value": -0.10017,
           "raw_feature_value_scaled": 0.0,
           "direction": "pushes score DOWN (more normal)"
-        }
-      ]
-    },
-    "autoencoder": {
-      "top_contributors": [
-        {
-          "feature": "amount_to_balance_ratio",
-          "shap_value": 0.31705,
-          "raw_feature_value_scaled": 6.6758,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "account_frequency",
-          "shap_value": 0.11401,
-          "raw_feature_value_scaled": 2.1698,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "TransactionAmount",
-          "shap_value": -0.07854,
-          "raw_feature_value_scaled": 1.466,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "AccountBalance",
-          "shap_value": -0.05912,
-          "raw_feature_value_scaled": -1.258,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "LoginAttempts",
-          "shap_value": -0.03482,
-          "raw_feature_value_scaled": -0.2068,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "high_amount_transaction",
-          "shap_value": 0.03402,
-          "raw_feature_value_scaled": 1.0,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "TransactionType_Debit",
-          "shap_value": 0.03057,
-          "raw_feature_value_scaled": 0.0,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "CustomerAge",
-          "shap_value": 0.02997,
-          "raw_feature_value_scaled": 0.974,
-          "direction": "pushes reconstruction error UP (more anomalous)"
         }
       ]
     }
@@ -266,58 +162,6 @@
           "direction": "pushes score UP (more anomalous)"
         }
       ]
-    },
-    "autoencoder": {
-      "top_contributors": [
-        {
-          "feature": "Location_FE",
-          "shap_value": 0.08623,
-          "raw_feature_value_scaled": 1.6953,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "TransactionDuration",
-          "shap_value": 0.04116,
-          "raw_feature_value_scaled": 1.6491,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "AccountBalance",
-          "shap_value": -0.03848,
-          "raw_feature_value_scaled": -1.1334,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "TransactionAmount",
-          "shap_value": -0.03827,
-          "raw_feature_value_scaled": 1.6889,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "amount_to_balance_ratio",
-          "shap_value": 0.03221,
-          "raw_feature_value_scaled": 3.8191,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "high_amount_transaction",
-          "shap_value": 0.03158,
-          "raw_feature_value_scaled": 1.0,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "merchant_frequency",
-          "shap_value": -0.02604,
-          "raw_feature_value_scaled": -0.4146,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "CustomerAge",
-          "shap_value": -0.01985,
-          "raw_feature_value_scaled": -1.3308,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        }
-      ]
     }
   },
   "TX001029": {
@@ -371,58 +215,6 @@
           "shap_value": -0.11786,
           "raw_feature_value_scaled": 0.0,
           "direction": "pushes score DOWN (more normal)"
-        }
-      ]
-    },
-    "autoencoder": {
-      "top_contributors": [
-        {
-          "feature": "merchant_frequency",
-          "shap_value": 0.3745,
-          "raw_feature_value_scaled": 3.6706,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "Location_FE",
-          "shap_value": 0.05036,
-          "raw_feature_value_scaled": 1.3819,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "ip_frequency",
-          "shap_value": -0.02872,
-          "raw_feature_value_scaled": -0.5684,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "account_frequency",
-          "shap_value": -0.02319,
-          "raw_feature_value_scaled": 0.395,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "TransactionType_Debit",
-          "shap_value": 0.02181,
-          "raw_feature_value_scaled": 0.0,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "TransactionAmount",
-          "shap_value": -0.02149,
-          "raw_feature_value_scaled": 0.9062,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "TransactionDuration",
-          "shap_value": -0.02007,
-          "raw_feature_value_scaled": -0.3666,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "device_frequency",
-          "shap_value": -0.01763,
-          "raw_feature_value_scaled": -0.3095,
-          "direction": "pushes reconstruction error DOWN (more normal)"
         }
       ]
     }

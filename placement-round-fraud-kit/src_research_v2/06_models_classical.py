@@ -10,8 +10,8 @@ Mirrors src_research/07_models_classical.py's methodology 1:1:
     are not overly sensitive to the handful of extreme rows RobustScaler is
     specifically chosen to be robust to).
   - Same 80/20 train/val split (random_state=42), reproduced from the exact
-    same train_test_split(np.arange(len(df)), ...) call used to train the
-    Phase 7 autoencoder -- cross-checked below, not assumed.
+    same train_test_split(np.arange(len(df)), ...) call used throughout this
+    pipeline (Phase 7's PCA/UMAP/t-SNE step and every model below).
   - Same anomaly-score sign convention: every score_<model> column is
     oriented so HIGHER = MORE ANOMALOUS (sklearn decision_function outputs
     are negated for IF/LOF/OCSVM/EE).
@@ -79,12 +79,6 @@ def load_and_split():
     X_all = scaler.transform(X)
 
     joblib.dump(scaler, os.path.join(MODELS_V2_DIR, "shared_robust_scaler.pkl"))
-
-    ae_errs = pd.read_csv(os.path.join(ARTIFACTS_V2_DIR, "autoencoder_reconstruction_errors.csv"))
-    ae_train_mask = (ae_errs["split"] == "train").values
-    my_train_mask = np.isin(np.arange(len(df)), idx_train)
-    match = (ae_train_mask == my_train_mask).all()
-    print(f"Split reproduction check vs autoencoder_reconstruction_errors.csv: {'MATCH' if match else 'MISMATCH'}")
 
     return df, feature_cols, X, X_train, X_val, X_all, idx_train, idx_val, scaler
 

@@ -1,17 +1,17 @@
 {
   "recommended_score": "ensemble_percentile_average (Phase 12 recommendation)",
   "score_distribution": {
-    "mean": 0.5001,
-    "std": 0.2029,
-    "min": 0.0862,
-    "max": 0.9988,
-    "q1": 0.3381,
-    "q3": 0.6574
+    "mean": 0.5,
+    "std": 0.197,
+    "min": 0.1018,
+    "max": 0.9994,
+    "q1": 0.3413,
+    "q3": 0.6523
   },
   "percentile_thresholds": [
     {
       "method": "P95",
-      "threshold_value": 0.8406,
+      "threshold_value": 0.841447,
       "n_flagged": 126,
       "pct_flagged": 5.016,
       "flagged_per_day_this_sample": 0.3462,
@@ -19,7 +19,7 @@
     },
     {
       "method": "P97",
-      "threshold_value": 0.86999,
+      "threshold_value": 0.863721,
       "n_flagged": 76,
       "pct_flagged": 3.025,
       "flagged_per_day_this_sample": 0.2088,
@@ -27,7 +27,7 @@
     },
     {
       "method": "P99",
-      "threshold_value": 0.914537,
+      "threshold_value": 0.916667,
       "n_flagged": 26,
       "pct_flagged": 1.035,
       "flagged_per_day_this_sample": 0.0714,
@@ -35,7 +35,7 @@
     },
     {
       "method": "P99.5",
-      "threshold_value": 0.944271,
+      "threshold_value": 0.955811,
       "n_flagged": 13,
       "pct_flagged": 0.518,
       "flagged_per_day_this_sample": 0.0357,
@@ -46,20 +46,20 @@
     {
       "method": "mean+3sigma",
       "score": "ensemble_percentile_average",
-      "threshold_value": 1.108844,
+      "threshold_value": 1.091092,
       "n_flagged": 0,
       "pct_flagged": 0.0,
-      "score_max": 0.998766,
-      "score_min": 0.086171
+      "score_max": 0.999403,
+      "score_min": 0.101762
     },
     {
       "method": "Q3+1.5*IQR",
       "score": "ensemble_percentile_average",
-      "threshold_value": 1.136299,
+      "threshold_value": 1.118823,
       "n_flagged": 0,
       "pct_flagged": 0.0,
-      "score_max": 0.998766,
-      "score_min": 0.086171
+      "score_max": 0.999403,
+      "score_min": 0.101762
     }
   ],
   "statistical_thresholds_context_unbounded_scores": [
@@ -84,23 +84,23 @@
     {
       "method": "mean+3sigma",
       "score": "ensemble_weighted_average (unbounded, for context)",
-      "threshold_value": 2.151551,
-      "n_flagged": 17,
-      "pct_flagged": 0.677,
-      "score_max": 18.162787,
-      "score_min": -0.704821
+      "threshold_value": 2.23786,
+      "n_flagged": 16,
+      "pct_flagged": 0.637,
+      "score_max": 18.672594,
+      "score_min": -0.773235
     },
     {
       "method": "Q3+1.5*IQR",
       "score": "ensemble_weighted_average (unbounded, for context)",
-      "threshold_value": 0.941323,
-      "n_flagged": 87,
-      "pct_flagged": 3.463,
-      "score_max": 18.162787,
-      "score_min": -0.704821
+      "threshold_value": 1.046791,
+      "n_flagged": 63,
+      "pct_flagged": 2.508,
+      "score_max": 18.672594,
+      "score_min": -0.773235
     }
   ],
-  "statistical_threshold_finding": "Both mean+3sigma and Q3+1.5*IQR exceed the maximum possible value of ensemble_percentile_average (max observed 0.999, thresholds computed at 1.109 and 1.136 respectively), flagging ZERO transactions. This is a genuine, unforced methodological finding, not an error: ensemble_percentile_average is a bounded average of 11 models' percentile ranks in (0,1), and averaging several roughly-independent percentiles compresses the tails (a CLT-like effect) far more than any single unbounded model's raw score would. Classic normal-distribution-derived statistical thresholds (3-sigma, Tukey's IQR fence) are not well-suited to a bounded, already-aggregated score. Confirmed this is specific to percentile aggregation, not a general dataset property, by applying the identical thresholds to two unbounded scores: Isolation Forest's raw score (mean+3sigma flags 25, Q3+1.5*IQR flags 43) and the Phase 12 Weighted-Average ensemble (mean+3sigma flags 17, Q3+1.5*IQR flags 87) -- both produce non-trivial, usable thresholds. Practical conclusion: statistical (sigma/IQR) thresholds should be applied to an unbounded, z-scored ensemble score (e.g. Weighted Average) if this thresholding style is wanted in production, not to the bounded Percentile Average score recommended for scoring.",
+  "statistical_threshold_finding": "Both mean+3sigma and Q3+1.5*IQR exceed the maximum possible value of ensemble_percentile_average (max observed 0.999, thresholds computed at 1.091 and 1.119 respectively), flagging ZERO transactions. This is a genuine, unforced methodological finding, not an error: ensemble_percentile_average is a bounded average of 8 models' percentile ranks in (0,1), and averaging several roughly-independent percentiles compresses the tails (a CLT-like effect) far more than any single unbounded model's raw score would. Classic normal-distribution-derived statistical thresholds (3-sigma, Tukey's IQR fence) are not well-suited to a bounded, already-aggregated score. Confirmed this is specific to percentile aggregation, not a general dataset property, by applying the identical thresholds to two unbounded scores: Isolation Forest's raw score (mean+3sigma flags 25, Q3+1.5*IQR flags 43) and the Phase 12 Weighted-Average ensemble (mean+3sigma flags 16, Q3+1.5*IQR flags 63) -- both produce non-trivial, usable thresholds. Practical conclusion: statistical (sigma/IQR) thresholds should be applied to an unbounded, z-scored ensemble score (e.g. Weighted Average) if this thresholding style is wanted in production, not to the bounded Percentile Average score recommended for scoring.",
   "business_impact_caveat": "This dataset has no fraud label, so a true cost-minimizing threshold (balancing illustrative FP cost $5 against illustrative FN cost $250, following v1's own stated illustrative figures, src/config.py -- not real bank numbers either) CANNOT be computed here, because that requires knowing which transactions are actually fraud (both among the flagged, to count true positives against the FP cost, and among the unflagged, to count false negatives against the FN cost). What CAN be shown honestly: (a) how many transactions land above each threshold, (b) the implied review-team operational load, and (c) an UPPER-BOUND illustrative review cost assuming every flagged transaction is a false positive (n_flagged x $5) -- this is not a total cost estimate, only a worst-case review-labor cost ceiling.",
   "operational_load_caveat": "This dataset covers 364 days and 2512 transactions total across 495 accounts -- an average of 6.90 transactions/day. This is a small research sample, not representative of a real bank's daily transaction volume; the 'flagged per day' figures below are illustrative of THIS SAMPLE's scale only, not a production volume estimate, and are reported as such rather than extrapolated into a false claim about real-world throughput."
 }

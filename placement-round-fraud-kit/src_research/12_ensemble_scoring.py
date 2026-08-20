@@ -1,43 +1,38 @@
 """
 Phase 12 -- Ensemble Anomaly Scoring.
 
-Combines 11 of the 12 Phase 8 models' scores into 4 unsupervised ensemble
-strategies. The Hybrid Ensemble (Model 12) is deliberately EXCLUDED from the
+Combines the 8 classical Phase 8 models' scores into 4 unsupervised ensemble
+strategies. The Hybrid Ensemble (Model 9) is deliberately EXCLUDED from the
 inputs to these new ensembles -- it is itself already a majority vote of
-Isolation Forest + LOF + Autoencoder (Phase 8 Section 2.12), so folding it
-back in as a 12th "model" would double-count those three detectors relative
-to the other 8. This is the "well-justified subset" the task brief allows
-for, stated explicitly rather than silently done. The Hybrid Ensemble's
-vote_count is still carried along as a comparison point, not an input.
+Isolation Forest + LOF + GMM (Phase 8 Section 2.9), so folding it back in as
+a 9th "model" would double-count those three detectors relative to the other
+5. This is the "well-justified subset" the task brief allows for, stated
+explicitly rather than silently done. The Hybrid Ensemble's vote_count is
+still carried along as a comparison point, not an input.
 
-The 11 models combined: isolation_forest, lof, ocsvm, elliptic_envelope,
-dbscan, hdbscan, kmeans, gmm, autoencoder, vae, lstm_ae.
+The 8 models combined: isolation_forest, lof, ocsvm, elliptic_envelope,
+dbscan, hdbscan, kmeans, gmm. (No deep-learning model remains to combine --
+Autoencoder/VAE/LSTM-AE were removed from this pipeline; see the project
+decision log.)
 
-LSTM-AE is NaN for 110/2,512 rows (accounts with <3 transactions, Phase 8
-Section 2.11) -- every aggregation strategy below is NaN-aware: a row
-missing the LSTM-AE score is combined using only the 10 other models for
-that row, not silently imputed with a fabricated value (except where noted
-explicitly for the PCA stacking proxy, which requires a complete matrix).
+None of these 8 models produce NaN scores (unlike the removed LSTM-AE, which
+only scored 2,402/2,512 rows) -- every strategy below is still written
+NaN-aware for robustness, but in practice S has no missing values.
 
 Four strategies:
   1. Weighted average -- weights = inverse mean disagreement with the other
-     10 models (Spearman rho from Phase 8's model_pairwise_spearman.csv,
+     7 models (Spearman rho from Phase 8's model_pairwise_spearman.csv,
      mapped from [-1,1] to a [0,1] disagreement scale), applied to each
      model's own z-score-standardized score.
   2. Rank aggregation (Borda count) -- each model's raw ordinal rank
-     (1 = least anomalous .. N = most anomalous), missing LSTM-AE ranks
-     imputed with the neutral/median rank (documented, not silently done),
-     summed across all 11 models.
+     (1 = least anomalous .. N = most anomalous), summed across all 8 models.
   3. Percentile aggregation -- each model's score converted to its own
-     empirical percentile (0-1), missing values SKIPPED (not imputed) and
-     averaged only over the models actually available for that row.
+     empirical percentile (0-1), averaged across the 8 models.
   4. Stacking proxy (NOT supervised) -- PCA's first principal component
-     across the 11 z-scored score columns (LSTM-AE's 110 missing rows
-     zero-imputed, i.e. "no information," documented explicitly since PCA
-     requires a complete matrix), oriented so higher = more anomalous.
-     Explicitly labeled as an unsupervised consensus-axis proxy, not
-     supervised stacking, since no label exists anywhere in this project to
-     stack a meta-learner against.
+     across the 8 z-scored score columns, oriented so higher = more
+     anomalous. Explicitly labeled as an unsupervised consensus-axis proxy,
+     not supervised stacking, since no label exists anywhere in this project
+     to stack a meta-learner against.
 
 Outputs: artifacts_research/{ensemble_scores.csv, ensemble_weights.json,
 ensemble_pairwise_comparison.csv, ensemble_vs_v1_crosscheck.json}.
@@ -69,7 +64,7 @@ plt.rcParams.update({
 
 TOP_PCT = 0.05
 BASE_MODELS = ["isolation_forest", "lof", "ocsvm", "elliptic_envelope", "dbscan",
-               "hdbscan", "kmeans", "gmm", "autoencoder", "vae", "lstm_ae"]
+               "hdbscan", "kmeans", "gmm"]
 
 
 def savefig(fig, name):
@@ -91,15 +86,10 @@ def top_pct_flag(score, pct=TOP_PCT):
 
 def load_data():
     scores = pd.read_csv(os.path.join(ARTIFACTS_RESEARCH_DIR, "model_scores_all.csv"))
-    lstm_applicable = (scores["lstm_ae_applicable"] == 1).values
     S = np.full((len(scores), len(BASE_MODELS)), np.nan)
     for j, m in enumerate(BASE_MODELS):
-        col = scores[f"score_{m}"].values.astype(float)
-        if m == "lstm_ae":
-            col = col.copy()
-            col[~lstm_applicable] = np.nan
-        S[:, j] = col
-    return scores, S, lstm_applicable
+        S[:, j] = scores[f"score_{m}"].values.astype(float)
+    return scores, S
 
 
 def zscore_columns(S):
@@ -187,8 +177,9 @@ def percentile_aggregation(S):
 
 # -------------------------------------------------------- Strategy 4: PCA stacking proxy
 def pca_stacking(Z, consensus_ref):
-    Z_imputed = np.where(np.isnan(Z), 0.0, Z)  # documented: missing LSTM-AE rows get
-    # z=0 ("no information from this model"), required since PCA needs a complete matrix
+    Z_imputed = np.where(np.isnan(Z), 0.0, Z)  # documented: any missing score gets
+    # z=0 ("no information from this model"), required since PCA needs a complete matrix;
+    # in practice none of the 8 classical models produce NaN scores, so this is a no-op here
     pca = PCA(n_components=1, random_state=42)
     pc1 = pca.fit_transform(Z_imputed).ravel()
     rho, _ = spearmanr(pc1, consensus_ref)
@@ -200,7 +191,7 @@ def pca_stacking(Z, consensus_ref):
 
 def main():
     print("=== Phase 12: Ensemble Anomaly Scoring ===")
-    scores, S, lstm_applicable = load_data()
+    scores, S = load_data()
     Z = zscore_columns(S)
 
     print("\n--- Strategy 1: Weighted average (consensus-weighted) ---")
@@ -224,7 +215,7 @@ def main():
             "weights": weights, "disagreements": disagreements,
             "pca_explained_variance_ratio_pc1": round(explained_var, 4),
             "note": ("Weights = 1 / (mean pairwise disagreement + 0.05), normalized to sum to 1; "
-                     "disagreement_m = mean over the other 10 models of (1 - Spearman rho)/2, mapping "
+                     "disagreement_m = mean over the other 7 models of (1 - Spearman rho)/2, mapping "
                      "rho in [-1,1] to a [0,1] disagreement scale. Source: "
                      "artifacts_research/model_pairwise_spearman.csv (Phase 8, not recomputed)."),
         }, f, indent=2, default=float)
@@ -294,7 +285,7 @@ def main():
     names_sorted = sorted(weights, key=lambda m: weights[m])
     ax.barh(names_sorted, [weights[n] for n in names_sorted], color="#2F6690")
     ax.set_xlabel("Consensus weight (normalized, sums to 1)")
-    ax.set_title("Strategy 1 Weights: Inverse Mean Disagreement with the Other 10 Models")
+    ax.set_title("Strategy 1 Weights: Inverse Mean Disagreement with the Other 7 Models")
     savefig(fig, "ensemble_weights_barplot.png")
 
     # ---------------- Cross-check against v1's vote_count and hybrid_vote_count ----------------

@@ -12,7 +12,7 @@ This report is written to stand alone. Every claim traces to one of the phase re
 | 1 | Business understanding (raw data unchanged; carried over) | `research/01_business_understanding.md` |
 | 5 | Feature engineering — the 18-feature set, verified | `research_v2/04_feature_engineering.md` |
 | 6–7 | Preprocessing verification and dimensionality reduction | `research_v2/05_feature_selection_and_preprocessing.md` |
-| 8 | Model development (12 models) | `research_v2/06_model_development.md` |
+| 8 | Model development (9 models: 8 classical + Hybrid Ensemble) | `research_v2/06_model_development.md` |
 | 9 | Hyperparameter optimisation | `research_v2/07_hyperparameter_optimization.md` |
 | 10 | Evaluation framework | `research_v2/08_evaluation.md` |
 | 11 | Explainability | `research_v2/09_explainability.md` |
@@ -29,15 +29,15 @@ This report is written to stand alone. Every claim traces to one of the phase re
 
 ## 1. Executive Summary
 
-Twelve unsupervised anomaly-detection models were built, tuned, evaluated, explained, ensembled and thresholded against an unlabelled retail banking transaction dataset using the client's designated 18-feature matrix, and a production architecture and monitoring framework were designed on top of the result.
+Nine unsupervised anomaly-detection models were built, tuned, evaluated, explained, ensembled and thresholded against an unlabelled retail banking transaction dataset using the client's designated 18-feature matrix, and a production architecture and monitoring framework were designed on top of the result. **No deep-learning model is part of this pipeline.** An earlier iteration trained an Autoencoder, a VAE and an LSTM-Autoencoder alongside the classical detectors; all three were removed (see Phase 14 §6 for the rationale) because none of the three could be justified against the classical field on this feature set — the LSTM-AE structurally could not score 4.4% of rows and overfit from ~epoch 50, and neither the plain Autoencoder nor the VAE ranked competitively on internal validity. Model 9, the **Hybrid Ensemble**, was redefined from "IF + LOF + Autoencoder majority vote" to **IF + LOF + GMM majority vote (≥2 of 3)** as a direct consequence.
 
-**What the system is.** An 18-feature matrix — five raw behavioural fields, four global frequency counts, an amount-to-balance ratio, a global high-amount flag, and seven one-hot/frequency category encodings — feeding nine to eleven independent anomaly detectors whose scores are combined by percentile aggregation into a single score in (0,1), thresholded into two human-review tiers, and explained to an investigator through two structurally different SHAP views.
+**What the system is.** An 18-feature matrix — five raw behavioural fields, four global frequency counts, an amount-to-balance ratio, a global high-amount flag, and seven one-hot/frequency category encodings — feeding 8 independent classical anomaly detectors (Isolation Forest, LOF, One-Class SVM, Elliptic Envelope, DBSCAN, HDBSCAN, K-Means, GMM) whose scores are combined by percentile aggregation into a single score in (0,1), thresholded into two human-review tiers, and explained to an investigator through Isolation Forest's SHAP attributions — the sole explainability output in this pipeline.
 
-**The recommendation.** Percentile aggregation over the detectors that can score out-of-sample, with Isolation Forest and Autoencoder SHAP attributions shown side by side, feeding a two-tier review queue at the 99th percentile (**26 transactions, 1.04%, score ≥ 0.9510**) and the 95th percentile (**126 transactions, 5.02%, score ≥ 0.8671**). **No automatic blocking.**
+**The recommendation.** Percentile aggregation over the 6 detectors that can score out-of-sample (plus the batch-only DBSCAN/HDBSCAN when scoring a fixed historical set), with Isolation Forest SHAP attributions on every alert, feeding a two-tier review queue at the 99th percentile (**26 transactions, 1.04%, score ≥ 0.9627**) and the 95th percentile (**126 transactions, 5.02%, score ≥ 0.8852**). **No automatic blocking.**
 
-**The single most important technical finding.** Isolation Forest and the Autoencoder disagree almost completely about *why* a transaction is anomalous. Their global feature-importance rankings correlate at Spearman **ρ = −0.3705** (Phase 11) — a sharper disagreement than the in-house pipeline's ρ = −0.157, on a feature set less than half the size. The mechanism is understood and replicated independently across both pipelines: Isolation Forest's attributions are dominated by low-cardinality one-hots that a single split isolates cheaply (`TransactionType_Debit` is its #1 feature and `CustomerOccupation_Retired` its #2 in *both* pipelines), while the Autoencoder's are dominated by whichever continuous features resist compression through a small bottleneck. There is a worked case (`TX001029`) where a $516.47 transaction at 0.40× its account's balance, with normal login behaviour, lands high on Isolation Forest purely on an extreme `merchant_frequency` value. **That finding is why the recommendation is an ensemble despite a single model being cheaper, faster and easier to operate.**
+**The single most important technical finding.** DBSCAN stands alone at the bottom of every cross-model agreement measure — its mean pairwise Spearman with the other 7 base models is **0.242**, against a 0.480–0.685 range for everyone else, and it correlates weakest of all with every single other model (lowest pair: DBSCAN ↔ LOF, ρ=0.161). This reproduces a finding from the in-house 46-feature pipeline almost exactly, which is strong independent corroboration that it is a property of DBSCAN's single-dense-cluster behaviour on this raw data, not an artifact of either feature-engineering choice. **That finding is why the recommendation is an 8-model ensemble rather than any single detector** — no one classical model's top-5% set can be trusted alone when even the *field* disagrees this sharply about one member.
 
-**The strongest single fraud-signature match, and it was found twice, independently.** `TX000275` (account AC00454) — a $1,176.28 transaction against a $323.69 balance (**3.63×**) with **5 login attempts**, the dataset's observed maximum — is the **highest-scoring transaction in this pipeline's entire ensemble ranking** (`ensemble_percentile_average` = 0.9951, rank 1 of 2,512). The in-house 46-feature pipeline independently surfaced the same transaction in its own top-1% tier, on completely different features. Both this pipeline's SHAP models agree on why: Isolation Forest attributes +1.714 to `LoginAttempts` and +1.607 to `amount_to_balance_ratio`; the Autoencoder attributes +1.570 to `amount_to_balance_ratio`. Two independent feature-engineering philosophies and two structurally different explainers converging on one transaction is the strongest corroboration available in a project with no label.
+**The strongest single fraud-signature match, and it was found twice, independently.** `TX000275` (account AC00454) — a $1,176.28 transaction against a $323.69 balance (**3.63×**) with **5 login attempts**, the dataset's observed maximum — ranks **2nd of 2,512** on this pipeline's ensemble score (`ensemble_percentile_average` = 0.9949; the current rank-1, `TX002192`, is a $879.25 transaction at 6.99× a $125.85 balance with only 1 login attempt — a large-ratio, no-friction profile, discussed in §7.4). The in-house 46-feature pipeline independently surfaced `TX000275` in its own top-1% tier, on completely different features. Isolation Forest's SHAP explains why: `LoginAttempts` (+1.714) and `amount_to_balance_ratio` (+1.607) are its two largest contributors for this row — the two features Phase 1 identified as the account-takeover signature, both firing on the same transaction, independently corroborated by a completely different feature-engineering pipeline.
 
 **What this feature set structurally cannot do, stated up front rather than buried.** These 18 features contain **no personal-baseline statistics and no per-account novelty flags** (Phase 5 §3). There is no way to ask "is this amount unusual *for this customer*" — only "is this amount unusual in the population" (`high_amount_transaction`, a global $878.18 threshold) or "how does this transaction's size compare to this account's balance" (`amount_to_balance_ratio`, a within-row ratio). Account takeover — Phase 1's strongest-fit fraud scenario — is materially harder to detect here than on a feature set with personal-baseline and novelty features. Everything this pipeline detects is closer to "unusual in the population" than "unusual for this account".
 
@@ -108,7 +108,7 @@ The four frequency counts are computed over the **whole dataset**, which means e
 
 ## 4. Structure Found in the Feature Space
 
-*Source: Phase 7. PCA, UMAP, t-SNE and an autoencoder bottleneck, all on the full 18-column matrix.*
+*Source: Phase 7. PCA, UMAP and t-SNE, all on the full 18-column matrix. No autoencoder-latent-space step is part of this analysis -- the pipeline's model suite is 8 classical unsupervised detectors plus the Hybrid Ensemble, and PCA/UMAP/t-SNE are independent of that.*
 
 **PCA does not compress this feature space.** PC1 explains only **16.01%**, PC2 9.34%, PC3 8.87%, with a long declining tail; **9 components are needed for 80% cumulative variance and 11 for 90%**. The loadings are directly interpretable:
 
@@ -126,71 +126,62 @@ The four frequency counts are computed over the **whole dataset**, which means e
 | Student segment | 614 (24.4%), 94.8% Student | 383 (15.25%), 94.5% Student | `CustomerAge` z-mean −1.16, `AccountBalance` z-mean −1.01 in both |
 | Elevated-login pocket | 96 (3.8%), `LoginAttempts` z-mean **4.755** | 99 (3.94%), z-mean **4.655** | the high-login population, cleanly separated |
 
-Two independent nonlinear projections agreeing this closely is much stronger evidence than either alone. **Neither group is a fraud population**: the student cluster is a demographic segment, and the elevated-login pocket is a population worth watching but not a verdict. Both reappear later — the student segment turns up in K-Means' k=2 split (§5) and in the weak tail of the alert queue (§7.4).
-
-**Autoencoder.** `input(18) → 8 → 4 → bottleneck(3) → 4 → 8 → output(18)`, Adam (lr 1e-3), 200 epochs, MSE loss, on the RobustScaler-scaled matrix. Train MSE **0.2858**, validation **0.2966** — a **+3.8%** train/val gap, proportionally tighter than the in-house 46-feature autoencoder's +13.2%, which is what an easier (lower-dimensional) reconstruction task predicts. Val P95 0.5551, P99 0.6339, max 0.9633. The tail is proportionally much less extreme than the in-house autoencoder's (whose val max was over 10× its P95) — a direct consequence of this feature set having no personal-baseline column capable of producing a very large single-row deviation.
+Two independent nonlinear projections agreeing this closely is much stronger evidence than either alone. **Neither group is a fraud population**: the student cluster is a demographic segment, and the elevated-login pocket is a population worth watching but not a verdict. Both reappear later — the student segment turns up in K-Means' k=2 split (§5) and in the weak tail of the alert queue (§7.3).
 
 ---
 
 ## 5. Model Comparison
 
-*Source: Phase 8. Twelve models, one shared 18-column matrix, one shared `RobustScaler` fit on the 2,009-row training split, all scores oriented higher = more anomalous. An explicit assertion confirms no `vote_count`/`risk_tier`/`is_fraud` column exists anywhere in the input.*
+*Source: Phase 8. Nine models (8 classical + the Hybrid Ensemble), one shared 18-column matrix, one shared `RobustScaler` fit on the 2,009-row training split, all scores oriented higher = more anomalous. An explicit assertion confirms no `vote_count`/`risk_tier`/`is_fraud` column exists anywhere in the input. No deep-learning model is trained in this pipeline -- an earlier iteration's Autoencoder, VAE and LSTM-AE were removed (Phase 14 §6); Model 9 (Hybrid Ensemble) was redefined from IF+LOF+Autoencoder to **IF + LOF + GMM majority vote (≥2 of 3)** as a direct consequence.*
 
-Models 1–4 and 7–10 were fit on the training split and scored all 2,512 rows out-of-sample. **DBSCAN and HDBSCAN have no out-of-sample `.predict` and had to be fit on the full dataset** — a methodological footnote in research that becomes an architectural constraint in production (§10). The LSTM Autoencoder required a separate account-level split.
+Models 1–4 and 7–8 were fit on the training split and scored all 2,512 rows out-of-sample. **DBSCAN and HDBSCAN have no out-of-sample `.predict` and had to be fit on the full dataset** — a methodological footnote in research that becomes an architectural constraint in production (§10).
 
-| Model | Flagged rate | Internal-validity Silhouette | Mean pairwise Spearman (self-excluded) |
+| Model | Flagged rate | Internal-validity Silhouette | Mean pairwise Spearman (self-excluded, 7 other base models) |
 |---|---:|---:|---:|
-| **Elliptic Envelope** | 5.02% | **0.5409** | 0.602 |
-| HDBSCAN | 8.88% | 0.4302 | 0.665 |
-| DBSCAN | 2.27% | 0.4280 | **0.235** |
-| One-Class SVM | 5.73% | 0.4059 | 0.650 |
-| K-Means | 5.02% | 0.4003 | **0.670** |
-| Isolation Forest | 5.29% | 0.3975 | 0.579 |
-| LSTM-AE (of 2,402 applicable rows) | 5.04% | 0.3746 | 0.565 |
-| GMM | 5.02% | 0.2925 | 0.449 |
-| Hybrid Ensemble | 3.30% native | 0.2774 | 0.423 |
-| LOF | 4.46% | 0.2765 | 0.646 |
-| VAE | 5.02% | 0.2012 | 0.609 |
-| Autoencoder | 5.02% | **0.1724** | 0.588 |
+| **Elliptic Envelope** | 5.02% | **0.5409** | 0.646 |
+| HDBSCAN | 8.88% | 0.4302 | 0.685 |
+| DBSCAN | 2.27% | 0.4280 | **0.242** |
+| One-Class SVM | 5.73% | 0.4059 | 0.639 |
+| K-Means | 5.02% | 0.4003 | **0.675** |
+| Isolation Forest | 5.29% | 0.3975 | 0.586 |
+| GMM | 5.02% | 0.2925 | 0.480 |
+| LOF | 4.46% | 0.2765 | 0.627 |
+| Hybrid Ensemble (vote_count, native ≥2-of-3) | 4.02% | 0.3064 | n/a (coarse 0–3 vote count) |
 
-**This table is not a leaderboard, and reading it as one would be the easiest way to reach a wrong conclusion.** Four qualifications:
+**This table is not a leaderboard, and reading it as one would be the easiest way to reach a wrong conclusion.** Three qualifications:
 
-1. **Silhouette structurally favours distance-based methods.** A top-5%-by-distance cut is close to guaranteed to separate well *in a distance metric*. The reconstruction-error models score lowest not because they are worse but because low reconstruction error does not imply Euclidean proximity — and an 18→3 compression leaves even less geometric residual than the in-house 46→4 did.
+1. **Silhouette structurally favours distance-based methods.** A top-5%-by-distance cut is close to guaranteed to separate well *in a distance metric*. Density/likelihood-based methods (GMM, LOF) score lower not because they are worse but because their notion of "anomalous" is not the same as "far in Euclidean space."
 2. **Elliptic Envelope tops the ranking and its core assumption is measurably false.** Shapiro-Wilk on all 18 scaled features: **100% reject normality at p<0.05** — every one of the 18 p-values rounds to 0.0000. Its MCD-based Mahalanobis distance is retained for comparison and explicitly not recommended as a primary detector.
-3. **The flagged rates are largely set by construction.** Eight of the twelve cluster in 4.5%–5.7% because they either take a `contamination≈0.05` parameter or use the standardised top-5% convention. The rate carries little information; the *agreement on which rows* carries all of it. DBSCAN (2.27%) and HDBSCAN (8.88%) are the two genuine outliers among the outlier-detectors, in opposite directions.
-4. **The self-excluded Spearman column above is not the figure Phase 8 published.** Phase 8 §3.2/§3.3's "mean pairwise" values include each model's self-correlation of 1.0 in a 12-way average, inflating every figure by the same monotone transform. Rankings and conclusions are unaffected; the corrected values are given here and the discrepancy is logged in Phase 14 §5.
+3. **The flagged rates are largely set by construction.** Seven of the nine cluster in 4.0%–5.7% because they either take a `contamination≈0.05` parameter or use the standardised top-5% convention. The rate carries little information; the *agreement on which rows* carries all of it. DBSCAN (2.27%) and HDBSCAN (8.88%) are the two genuine outliers among the outlier-detectors, in opposite directions.
 
-**Cross-model agreement is where the real structure is.** Strongest pairs: LOF ↔ VAE **ρ=0.839**, LOF ↔ K-Means 0.838, Autoencoder ↔ VAE 0.837, HDBSCAN ↔ K-Means 0.832. Weakest: **every one of the six lowest pairs involves DBSCAN**, bottoming at DBSCAN ↔ Autoencoder ρ=**0.153**. **DBSCAN standing alone at the bottom is the single most reproducible cross-model finding in this project** — it reproduced independently on the in-house 46-feature set too, which makes it a property of DBSCAN's single-dense-cluster behaviour on this raw data rather than an artifact of either feature-engineering choice.
+**Cross-model agreement is where the real structure is.** Strongest pairs among the 8 classical models: LOF ↔ K-Means **ρ=0.838**, HDBSCAN ↔ K-Means 0.832, HDBSCAN ↔ Elliptic Envelope 0.826, LOF ↔ HDBSCAN 0.814. Weakest: **every one of the seven lowest pairs involves DBSCAN**, bottoming at DBSCAN ↔ LOF ρ=**0.161**. **DBSCAN standing alone at the bottom is the single most reproducible cross-model finding in this project** — it reproduced independently on the in-house 46-feature set too, which makes it a property of DBSCAN's single-dense-cluster behaviour on this raw data rather than an artifact of either feature-engineering choice.
 
-**A distinction the flagged-set overlap metric surfaces that rank correlation does not.** Elliptic Envelope has the **lowest mean Jaccard overlap of any model** (0.170 self-excluded) despite a comfortably mid-pack Spearman (0.602). Its broad *ranking* tracks the field; its specific *top-5% set* barely overlaps anyone's. This is why both metrics are reported side by side rather than one being chosen — they answer different questions and here they disagree.
+**A distinction the flagged-set overlap metric surfaces that rank correlation does not.** Elliptic Envelope has a comfortably mid-pack Spearman (0.646) but its top-5% set is only moderately shared with the field's densest cluster (LOF/HDBSCAN/K-Means, which mutually agree above ρ=0.81) — its broad *ranking* tracks the field more than its specific *top-5% set* does. This is why both Spearman and Jaccard are reported side by side (Phase 8 §3) rather than one being chosen — they answer different questions.
 
 **Model-specific findings worth carrying forward:**
 
 - **K-Means finds a real split, and it is demographic, not fraudulent.** Silhouette argmaxes at k=2 (0.491) and — unlike the in-house pipeline, where k=2 was a degenerate 3-row micro-cluster — this is a genuine **1,830/179** partition of the training split, with the 179-row minority **77.7% `CustomerOccupation_Student`** against 21.3% in the majority. It is the same segment Phase 7's UMAP and t-SNE both found. It is well-separated, real, and fraud-irrelevant. **The inertia elbow, however, is genuinely ambiguous**: no k in 2–10 clears the elbow test, so the rule mechanically returns the boundary, k=10. That ambiguity is reported rather than resolved by picking a more convenient answer.
-- **HDBSCAN is far more usable here than in-house, and still fragile.** Its best config reaches 8.88% noise (in-house: 53.94%), plausibly because an 18-dimensional space suffers less mutual-reachability inflation than a 46-dimensional one. But the other three configs tried sit at **86.1%–90.4%** noise — a cliff, not a gradient.
-- **GMM prefers a simpler covariance structure here.** Best BIC is `n_components=10, covariance_type='diag'` (BIC −27,620.9) — **diag, not the in-house pipeline's full**. Even with only 171 free covariance parameters per full-covariance component (vs. 1,081 at 46 features), the data's per-component correlations do not justify them. The BIC curve is still descending at the n=10 search boundary, so the true optimum may lie beyond it — an honest, unresolved caveat.
-- **The LSTM Autoencoder overfits, and it was reported rather than early-stopped away.** Validation MSE bottoms out near **0.49 around epoch 50** and then climbs steadily to **0.79 by epoch 150** while training MSE keeps falling — a textbook overfitting signature, on 342 training *sequences* of median length 5. It also structurally cannot score 110/2,512 rows (4.4%). Phase 8's own conclusion: it is even less justified on this feature set than the in-house one was.
-- **The VAE buys nothing here.** It reconstructs worse than the plain autoencoder at **every percentile including the maximum** (val 0.3458 vs. 0.2966; P99 0.8484 vs. 0.6339; max 1.2137 vs. 0.9633). On the in-house feature set the VAE at least smoothed the extreme tail; here that effect does not appear at all.
+- **HDBSCAN is far more usable here than in-house, and still fragile.** Its best config reaches 8.88% noise (in-house: far higher), plausibly because an 18-dimensional space suffers less mutual-reachability inflation than a 46-dimensional one. But other configs tried sit far higher — a cliff, not a gradient.
+- **GMM prefers a simpler covariance structure here.** Best BIC is `n_components=10, covariance_type='diag'` (BIC −27,620.9) — **diag, not the in-house pipeline's full**. Even with only 18 free variance parameters per diagonal component, the data's per-component correlations do not justify a richer covariance structure. The BIC curve is still descending at the n=10 search boundary, so the true optimum may lie beyond it — an honest, unresolved caveat.
+- **The Hybrid Ensemble (IF + LOF + GMM) agrees more with Isolation Forest and GMM than with LOF.** Pairwise agreement on the majority-vote flag: IF↔GMM 94.5%, LOF↔GMM 93.2%, IF↔LOF 93.2% (Phase 8 §2.9) — all three components agree with each other on 93%+ of rows, which is why the majority vote (4.02% flagged) sits close to, but not identical with, any single component's native rate.
 
 ---
 
 ## 6. Hyperparameter Tuning
 
-*Source: Phase 9. Three models tuned with Optuna's TPE sampler: Isolation Forest, GMM, VAE. With no label, "optimise against what" is a genuine design decision and was stated per model.*
+*Source: Phase 9. Two models tuned with Optuna's TPE sampler: Isolation Forest and GMM. No deep-learning model is tuned here -- the VAE hyperparameter search was dropped along with the VAE model itself. With no label, "optimise against what" is a genuine design decision and was stated per model.*
 
 | Model | Method | Result |
 |---|---|---|
-| **Isolation Forest** (objective: silhouette, top-5% vs. rest) | Exhaustive grid, 60 combos, 40.8s | **0.4154** |
-| | Optuna TPE, 30 trials, 25.0s | 0.4107 |
-| | Random search, 30 trials, 26.8s | 0.3840 |
+| **Isolation Forest** (objective: silhouette, top-5% vs. rest) | Exhaustive grid, 60 combos, 47.0s | **0.4154** |
+| | Optuna TPE, 30 trials, 31.4s | 0.4107 |
+| | Random search, 30 trials, 31.5s | 0.3840 |
 
-**Reported plainly rather than spun: the exhaustive grid still won.** Optuna came **0.0047** short in half the evaluations — a smaller gap than the in-house pipeline's 0.0111, but still short. The practical conclusion carries over: a 3-hyperparameter, cheap-to-evaluate search space is too small for Bayesian optimisation's main selling point to pay off against a grid you can afford to enumerate.
+**Reported plainly rather than spun: the exhaustive grid still won.** Optuna came **0.0047** short — a smaller gap than the in-house pipeline's, but still short. The practical conclusion carries over: a 3-hyperparameter, cheap-to-evaluate search space is too small for Bayesian optimisation's main selling point to pay off against a grid you can afford to enumerate.
 
-**But one result genuinely differs from in-house, and it is the more interesting half.** Optuna beat random search here by **+0.0267** on an identical 30-trial budget, where in-house the two were statistically indistinguishable. One plausible read: with fewer, more population-level features and no personal-baseline columns adding noise to the objective surface, the silhouette-vs-hyperparameter relationship here is smoother and more exploitable — exactly the setting where TPE's model-based proposals have more signal than uniform sampling. Also notable: the winning config uses `n_estimators=50`, the **smallest** value in the grid — the opposite of the in-house pipeline's `n_estimators=300`. With only 18 lower-dimensional features, fewer and shallower isolation trees already separate the top-5% tail as well as a much larger forest.
+**But one result genuinely differs from in-house, and it is the more interesting half.** Optuna beat random search here by **+0.0267** on an identical 30-trial budget. One plausible read: with fewer, more population-level features and no personal-baseline columns adding noise to the objective surface, the silhouette-vs-hyperparameter relationship here is smoother and more exploitable — exactly the setting where TPE's model-based proposals have more signal than uniform sampling.
 
-**GMM: a materially more reassuring result than in-house.** Adding `reg_covar` to the search space moved best BIC from −27,620.9 to **−47,044.7** — and the winning covariance type **stayed `diag`** in both the fixed-`reg_covar` grid and the free-`reg_covar` search. In-house, the equivalent search pushed toward an even more parameter-hungry `full`-covariance solution and reinforced an overfitting concern. Here it does not: a `diag` structure has 18 variances per component rather than 171 covariance entries, so a smaller regularisation floor is a far lower-risk route to a lower BIC. **`diag` covariance with a smaller `reg_covar` is a more defensible production choice here than the in-house pipeline's `full`-covariance result was for its own feature set.** The n_components boundary caveat still stands.
-
-**VAE: replicates the in-house finding almost exactly.** 20 trials, 192.2s (the slowest search — each trial is a full 60-epoch training run). Best: `latent_dim=3, hidden1=8, beta=0.0113, lr=0.00312`, val MSE 0.2757 at 60 epochs. The search landed on exactly the deployed model's architecture, differing only in `beta` and `lr`, and **`beta` is again clearly the dominant hyperparameter** — the search's best beta sits an order of magnitude below the deployed model's 0.1. This is consistent with, and mechanistically explains, §5's finding that the deployed VAE reconstructs worse than the plain autoencoder at every percentile. (The 0.2757 and the deployed model's 0.3458 are **not directly comparable** — different epoch budgets — and are not presented as if they were.)
+**GMM: a materially more reassuring result than in-house.** Adding `reg_covar` to the search space moved best BIC from −27,620.9 to **−47,044.7** — and the winning covariance type **stayed `diag`** in both the fixed-`reg_covar` grid and the free-`reg_covar` search (best trial: `n_components=10, covariance_type=diag, reg_covar≈1.01e-6`). In-house, the equivalent search pushed toward an even more parameter-hungry `full`-covariance solution and reinforced an overfitting concern. Here it does not: a `diag` structure has 18 variances per component rather than a full covariance matrix, so a smaller regularisation floor is a far lower-risk route to a lower BIC. **`diag` covariance with a smaller `reg_covar` is a more defensible production choice here than the in-house pipeline's `full`-covariance result was for its own feature set.** The n_components boundary caveat still stands.
 
 ---
 
@@ -200,39 +191,26 @@ Models 1–4 and 7–10 were fit on the training split and scored all 2,512 rows
 
 ### 7.1 Internal validity
 
-Every model's top-5%-by-score partition was scored on Silhouette, Davies-Bouldin and Calinski-Harabasz in the shared 18-feature scaled space, using one consistent partition definition across all twelve. Results are in §5's table with the qualifications that go with them.
+Every model's top-5%-by-score partition (the Hybrid Ensemble's majority-vote partition for that one) was scored on Silhouette, Davies-Bouldin and Calinski-Harabasz in the shared 18-feature scaled space, using one consistent partition definition across all nine. Results are in §5's table with the qualifications that go with them.
 
-**Elliptic Envelope leads by a wide margin** — Silhouette 0.5409, Davies-Bouldin 1.1529, Calinski-Harabasz **592.47**, the last more than 3× HDBSCAN's next-best 180.07. This is a real reversal from in-house, where it sat 7th of 12, and it *explains* the Jaccard anomaly from §5: EllipticEnvelope's MCD tail identifies a small, tightly-clustered, well-separated group in the scaled space — a coherent structural outlier population, just not the one everyone else converges on.
+**Elliptic Envelope leads by a wide margin** — Silhouette 0.5409, Davies-Bouldin 1.1529, Calinski-Harabasz **592.47**, more than 3× HDBSCAN's next-best 180.07. This is a real reversal from in-house, where it sat 7th of 12, and it *explains* the Jaccard anomaly from §5: EllipticEnvelope's MCD tail identifies a small, tightly-clustered, well-separated group in the scaled space — a coherent structural outlier population, just not the one everyone else converges on.
 
-**The Autoencoder is last** (0.1724 / 5.6806 / 15.73), more sharply so than in-house, for the construction reason in §5 qualification 1.
+**LOF is last of the 8 base classical models** (Silhouette 0.2765, Davies-Bouldin 4.2348, Calinski-Harabasz 36.38), for the construction reason in §5 qualification 1 — density-based scoring does not imply the Euclidean separation these metrics reward. The Hybrid Ensemble's own partition (Silhouette 0.3064) scores lower still, because its coarse 0–3 vote count produces a 255-row (10.2%) "flagged" group rather than a clean top-5% cut, which is a direct consequence of its discreteness, not evidence it is a worse detector (§7.4 explains why it is not used for fine-grained tiering).
 
 ### 7.2 Stability — the most operationally significant result in this pipeline
 
-Isolation Forest, LOF and the Autoencoder were each refit on 5 bootstrap resamples of the training split, rescored against all 2,512 rows, and the top-5% flagged set recomputed each time.
+Isolation Forest and LOF were each refit on 5 bootstrap resamples of the training split, rescored against all 2,512 rows, and the top-5% flagged set recomputed each time. (No deep-learning model remains to include here — the Autoencoder stability check that used to run alongside these two was removed with the model itself.)
 
 | Model | Mean pairwise Jaccard (5 runs) | Min | Max |
 |---|---:|---:|---:|
 | **Isolation Forest** | **0.6021** | 0.5090 | 0.6689 |
 | LOF | 0.5124 | 0.4651 | 0.5750 |
-| **Autoencoder** | **0.3726** | **0.2115** | 0.5849 |
 
-**Read the Autoencoder row plainly: in the worst observed retrain pair, fewer than one in four flagged transactions was shared between two runs.** Nothing changed except which rows the bootstrap happened to include — no drift, no new data, no hyperparameter change.
+**Isolation Forest is the more retrain-stable of the two measured models on this feature set**, similar in direction to the in-house pipeline's finding for these same two models, though the in-house pipeline measured a narrower 0.527–0.590 spread against the tighter one here (0.512–0.602). Nothing changed except which rows the bootstrap happened to include — no drift, no new data, no hyperparameter change — and even in the worst observed pair, less than half the flagged set (46.5%, LOF's minimum) was shared between two runs.
 
-**The ranking is inverted relative to the in-house pipeline**, where LOF was most stable (0.590) and Isolation Forest least (0.527) within a narrow 0.527–0.590 spread. Here the spread is wide (0.373–0.602) and the order is different: **Isolation Forest is clearly the most retrain-stable model on this feature set, and the Autoencoder clearly the least.** A plausible mechanism, stated as such: with only 18 largely population-level features and a 3-dimensional bottleneck, the Autoencoder has little redundant structure to anchor its notion of "normal" on, whereas Isolation Forest's splits are simple univariate thresholds less sensitive to exactly which rows are present.
+Two things follow, and both shaped the final design. **Operationally:** a fixed model artifact plus a monitored, versioned retraining process is the correct posture, not continuous retraining, and an operations team must be told the expected churn band in advance (Phase 16 §4.2, §5.2). **Methodologically:** this is a direct argument for aggregating detectors rather than trusting a borderline single-model result — a conclusion this section supports even with only two models measured, since neither individually reaches 70% self-agreement under resampling.
 
-Two things follow, and both shaped the final design. **Operationally:** a fixed model artifact plus a monitored, versioned retraining process is the correct posture, not continuous retraining, and an operations team must be told the expected churn band in advance (Phase 16 §4.2, §5.2). **Methodologically:** this is a direct argument for aggregating detectors rather than trusting a borderline single-model result.
-
-### 7.3 Reconstruction quality
-
-| Model | Train MSE | Val MSE | Val P95 | Val P99 | Val Max |
-|---|---:|---:|---:|---:|---:|
-| Autoencoder | 0.2858 | **0.2966** | 0.5551 | 0.6339 | 0.9633 |
-| VAE | 0.3371 | 0.3458 | 0.6394 | 0.8484 | 1.2137 |
-| LSTM-AE | 0.4345 | 0.7907 | — | — | — |
-
-Same ordering as in-house (AE < VAE < LSTM-AE) for the same reasons, but with two differences worth noting: the plain autoencoder reconstructs **better** here than the in-house one did (0.2966 vs. 0.3280 val MSE) on an easier, lower-dimensional task, and the LSTM-AE's train/val gap is proportionally larger (1.82×) because of the overfitting documented in §5.
-
-### 7.4 Business evaluation — reading real flagged transactions
+### 7.3 Business evaluation — reading real flagged transactions
 
 Isolation Forest's top 1% (26 transactions) was examined by hand against Phase 1's scenario table. **A necessary caveat, applied throughout:** `device_frequency` / `ip_frequency` / `account_frequency` are *global* population counts. A value near 0 means "about as common as the average device/IP/account in this dataset," **not** "unusual for this specific customer."
 
@@ -251,30 +229,26 @@ Isolation Forest's top 1% (26 transactions) was examined by hand against Phase 1
 
 ## 8. Explainability Results
 
-*Source: Phase 11. `shap.TreeExplainer` (exact, 8.3s for all 2,512 rows) for Isolation Forest; `shap.GradientExplainer` on a wrapper returning per-row reconstruction MSE (112.3s) for the Autoencoder. Both run over the full dataset, not a subsample. Both sign conventions verified directly, not assumed — TreeExplainer's raw output tracks `score_samples` (ρ=1.0000 on a 200-row check), the opposite of this project's convention, so its values are negated before reporting.*
+*Source: Phase 11. `shap.TreeExplainer` (exact, ~8s for all 2,512 rows) for Isolation Forest — the **sole explainability output** in this pipeline. No other classical model here (LOF, OCSVM, Elliptic Envelope, DBSCAN, HDBSCAN, K-Means, GMM) is naturally SHAP-compatible without an expensive KernelExplainer, which this codebase does not use anywhere, so the cross-model SHAP comparison this pipeline used to run (Isolation Forest against the Autoencoder) was dropped entirely when the Autoencoder was removed. Sign convention verified directly, not assumed — TreeExplainer's raw output tracks `score_samples` (ρ=1.0000 on a 200-row check), the opposite of this project's convention, so values are negated before reporting.*
 
-**The central finding: the two explained models attribute their scores almost entirely differently.**
+**Global feature importance (mean |SHAP|, Isolation Forest, all 2,512 rows):**
 
-| Rank | Isolation Forest | mean\|SHAP\| | Autoencoder | mean\|SHAP\| |
-|---:|---|---:|---|---:|
-| 1 | `TransactionType_Debit` | 0.391 | `Location_FE` | 0.0354 |
-| 2 | `CustomerOccupation_Retired` | 0.294 | `account_frequency` | 0.0304 |
-| 3 | `CustomerOccupation_Student` | 0.265 | `merchant_frequency` | 0.0302 |
-| 4 | `CustomerOccupation_Engineer` | 0.207 | `TransactionAmount` | 0.0279 |
-| 5 | `TransactionAmount` | 0.207 | `TransactionDuration` | 0.0257 |
+| Rank | Feature | mean\|SHAP\| |
+|---:|---|---:|
+| 1 | `TransactionType_Debit` | 0.391 |
+| 2 | `CustomerOccupation_Retired` | 0.294 |
+| 3 | `CustomerOccupation_Student` | 0.265 |
+| 4 | `CustomerOccupation_Engineer` | 0.207 |
+| 5 | `TransactionAmount` | 0.207 |
 
-**Top-10 overlap: 3 of 10** (`TransactionAmount`, `account_frequency`, `amount_to_balance_ratio`). Spearman correlation between the two full 18-feature importance vectors: **ρ = −0.3705** — a sharper disagreement than the in-house pipeline's ρ = −0.157.
-
-**The mechanism is understood, and it replicated across two independent feature sets.** Isolation Forest scores by how few random splits isolate a point, so a single split on a binary feature isolates an entire minority class in one step — low-cardinality categoricals dominate its attributions. **`TransactionType_Debit` is its #1 feature and `CustomerOccupation_Retired` its #2 in *both* pipelines**, on 18 and 46 features respectively. That is an independent replication of a mechanism, not a coincidence.
-
-**What the Autoencoder became on this feature set, and why it matters to the bank.** In-house, the Autoencoder's top four features were all *personal-baseline amount* features (`Amount_vs_AccountAvg`, `Amount_ZScore_Account`, `Amount_to_Balance_Ratio`, `Amount_to_RollingMean_Ratio`), and Phase 11 there read it as an "is this amount unusual for this account" detector. **Here, `amount_to_balance_ratio` ranks only 7th**; the top three are all frequency-encoded (`Location_FE`, `account_frequency`, `merchant_frequency`). This is the direct, structural consequence of the capability gap in §3: with no personal-baseline columns for the reconstruction error to concentrate on, the hardest-to-reconstruct residual shifts to the frequency features. **On this feature set the Autoencoder must be read as "is this transaction's popularity profile unusual", not "is this amount unusual for this account."** The in-house reading does not transfer, and presenting it as if it did would be a material misrepresentation to an investigator.
+**The mechanism is understood, and it replicated across two independent feature sets.** Isolation Forest scores by how few random splits isolate a point, so a single split on a binary feature isolates an entire minority class in one step — low-cardinality categoricals dominate its attributions. **`TransactionType_Debit` is its #1 feature and `CustomerOccupation_Retired` its #2 in *both* pipelines**, on 18 and 46 features respectively. That is an independent replication of a mechanism, not a coincidence — and a caution for a reviewer: a high Isolation Forest score is frequently driven by *who the customer is* (occupation, transaction type) as much as by *what the transaction looks like*.
 
 **Two worked local cases, both instructive:**
 
-- **`TX000615`** — the clearest example of the two models disagreeing about *which aspect* of the same transaction is anomalous. Isolation Forest reads it as an amount anomaly (`high_amount_transaction` +1.375, `amount_to_balance_ratio` +1.115); the Autoencoder reads it primarily as a **location-frequency** anomaly (`Location_FE` +0.086, its largest driver for this row, above the amount ratio). Neither is wrong; relying on one would give an investigator an incomplete picture.
-- **`TX001029`** — the most important case in this section. Both models **agree**, and what they agree on is that the oddity is an extreme `merchant_frequency` value (z = 3.67), not an unusual amount, login pattern or balance-relative size. Phase 10 independently judged this $516.47 transaction (0.40× balance, normal logins, Student account) not a plausible fraud pattern. **Cross-checking against a second, structurally different model is exactly what catches this class of low-value flag before it reaches a human reviewer** — and on this feature set it did.
+- **`TX000615`** — a $1,142 transaction (`high_amount_transaction` +1.375, `amount_to_balance_ratio` +1.115 at 3.82×) is read primarily as an amount anomaly, with `Location_FE` (+0.347) and `CustomerOccupation_Student` (+0.305) contributing materially as well — a case where the amount signal and the demographic/location signal reinforce each other rather than one dominating.
+- **`TX001029`** — `TransactionType_Debit` (+1.046) and an extreme `merchant_frequency` value (+0.962, z=3.67) are the two largest drivers, ahead of `amount_to_balance_ratio` (+0.219, only 0.79× balance). Phase 10 independently judged this $516.47 transaction (0.40× balance, normal logins, Student account) not a plausible fraud pattern — a low-value flag driven mostly by a population-frequency outlier and a categorical feature, not by the transaction's dollar amount. With only one explained model in this pipeline, catching this class of flag now relies on cross-*detector* agreement (§9's ensemble, and specifically the fact that DBSCAN and GMM — see §5 — do not weight categorical one-hots the way Isolation Forest's splits do) rather than a second explainer's independent read.
 
-**This is what makes the ensemble recommendation an evidence-based decision rather than a default.**
+**This is a narrower explainability surface than a two-model comparison would give an investigator, and that trade-off is stated plainly rather than smoothed over.** It is also the honest consequence of removing the Autoencoder: SHAP on the remaining classical models would require an approximate, expensive KernelExplainer with no existing precedent in this codebase, so Isolation Forest's exact TreeExplainer output is what ships.
 
 ---
 
@@ -282,24 +256,24 @@ Isolation Forest's top 1% (26 transactions) was examined by hand against Phase 1
 
 *Source: Phases 12–13.*
 
-Eleven of the twelve models were combined; the Hybrid Ensemble was deliberately excluded as an input, because it is itself a ≥2-of-3 vote of Isolation Forest + LOF + Autoencoder and folding it back in would double-count those three.
+The **8 classical models** were combined; the Hybrid Ensemble (Model 9) was deliberately excluded as an input, because it is itself a ≥2-of-3 vote of Isolation Forest + LOF + GMM and folding it back in would double-count those three.
 
-Four strategies were built: **weighted average** (disagreement-inverse weights, K-Means 0.109 down to DBSCAN 0.051 — the scheme correctly down-weights the model Phase 8 found most divergent), **rank aggregation** (Borda), **percentile aggregation**, and a **PCA stacking proxy** (explicitly *not* supervised stacking — there is no label to fit a meta-learner against; PC1 explains **54.90%** of the variance across the eleven standardised score columns).
+Four strategies were built: **weighted average** (disagreement-inverse weights, HDBSCAN 0.151 down to DBSCAN 0.073 — the scheme correctly down-weights the model Phase 8 found most divergent), **rank aggregation** (Borda), **percentile aggregation**, and a **PCA stacking proxy** (explicitly *not* supervised stacking — there is no label to fit a meta-learner against; PC1 explains **59.70%** of the variance across the 8 standardised score columns).
 
-**An honest finding rather than a manufactured distinction: Borda and percentile aggregation are near-identical here** — ρ = **0.9999**, Jaccard 0.969 on the top-5% set. That is expected: summing ranks and averaging rank/N are the same operation up to a normalisation constant, and they diverge only in how they handle the LSTM-AE's 110 missing rows. **On this feature set, Weighted Average and PCA Stacking also converge very tightly** (ρ = 0.9990, Jaccard 0.924) — more tightly than in-house — so there are two strategy clusters, not four independent signals.
+**An honest finding rather than a manufactured distinction: Borda and percentile aggregation are near-identical here** — ρ = **1.0000**, Jaccard 1.000 on the top-5% set. That is expected: summing ranks and averaging rank/N are the same operation up to a normalisation constant, and with no model contributing missing scores in this 8-model combination, they no longer diverge at all. **Weighted Average and PCA Stacking also converge very tightly** (ρ = 0.9998, Jaccard 0.909).
 
-**One cross-check returned nothing, and it is reported rather than dropped.** All four strategies correlate with v1's independent 4-detector `vote_count` proxy at **ρ between −0.0069 and −0.0065** — indistinguishable from zero. In-house, the same cross-check returned a modest but consistently positive ρ ≈ 0.442–0.444. The explanation is not a defect in either pipeline: v1's proxy was built on personal-baseline/expanding-statistics features in the same style as the in-house 46-feature set, so a detector ensemble built entirely from population-level features and one built from personal-baseline features are **evidently identifying substantially different transactions as anomalous on this dataset**. That is a measured confirmation of the capability difference, not a contradiction to resolve — but it does mean this pipeline has one fewer piece of corroborating evidence than the in-house one, and Phase 14 explicitly declines to lean on it.
+**One cross-check returned nothing, and it is reported rather than dropped.** All four strategies correlate with v1's independent 4-detector `vote_count` proxy at **ρ between 0.0009 and 0.0047** — indistinguishable from zero. The explanation is not a defect in either pipeline: v1's proxy was built on personal-baseline/expanding-statistics features in the same style as the in-house 46-feature set, so a detector ensemble built entirely from population-level features and one built from personal-baseline features are **evidently identifying substantially different transactions as anomalous on this dataset**. That is a measured confirmation of the capability difference, not a contradiction to resolve.
 
-**Percentile aggregation was selected** on three grounds: it is robust to eleven heterogeneous native scales (reconstruction MSE, a bounded kernel decision value, a GLOSH score, a negative log-likelihood, a centroid distance) with no assumption about their shapes; it has no tuned weights to defend to a reviewer; and it handles missing model scores by skipping and renormalising, which is both the right degradation behaviour and the mechanism that makes a reduced-member production deployment possible at all (§10).
+**Percentile aggregation was selected** on three grounds: it is robust to 8 heterogeneous native scales (a bounded kernel decision value, a GLOSH score, a negative log-likelihood, a centroid distance) with no assumption about their shapes; it has no tuned weights to defend to a reviewer; and it handles missing model scores by skipping and renormalising, which is both the right degradation behaviour and the mechanism that makes a reduced-member production deployment possible at all (§10).
 
-**Thresholds.** Score distribution: mean 0.5007, std 0.2250, min 0.0458, max 0.9951.
+**Thresholds.** Score distribution: mean 0.5000, std 0.2242, min 0.0576, max 0.9967.
 
 | Tier | Percentile | Score cut | Flagged | Daily load at this sample's rate |
 |---|---|---:|---:|---:|
-| **Priority review** | 99th | **0.9510** | 26 (1.04%) | ~0.07/day |
-| **Standard review** | 95th | **0.8671** | 126 (5.02%) | ~0.35/day |
+| **Priority review** | 99th | **0.9627** | 26 (1.04%) | ~0.07/day |
+| **Standard review** | 95th | **0.8852** | 126 (5.02%) | ~0.35/day |
 
-**A genuine methodological finding, reproduced independently on a completely different feature basis:** the classic statistical thresholds **flag zero transactions** on this score. mean+3σ = 1.1757 and Q3+1.5×IQR = 1.2332, both above the observed maximum of 0.9951 — because averaging eleven bounded percentiles compresses the tails, a CLT-like effect. The in-house pipeline found exactly the same thing on its own score. It is not a defect in percentile aggregation; it is a mismatch between one thresholding convention and one score's shape, confirmed by applying the identical rules to two **unbounded** scores, which both produced usable cut points (Isolation Forest's raw score: 16 and 25 flagged; the weighted-average ensemble: 29 and 79). **If a "three standard deviations" framing is wanted, apply it to the weighted average, not the percentile score** — and keep the weighted average computed in parallel for exactly that purpose, since it costs nothing once the members have run.
+**A genuine methodological finding, reproduced independently on a completely different feature basis:** the classic statistical thresholds **flag zero transactions** on this score. mean+3σ = 1.1725 and Q3+1.5×IQR = 1.2120, both above the observed maximum of 0.9967 — because averaging 8 bounded percentiles compresses the tails, a CLT-like effect. The in-house pipeline found exactly the same thing on its own score. It is not a defect in percentile aggregation; it is a mismatch between one thresholding convention and one score's shape, confirmed by applying the identical rules to two **unbounded** scores, which both produced usable cut points (Isolation Forest's raw score: 16 and 25 flagged; the weighted-average ensemble: 32 and 75). **If a "three standard deviations" framing is wanted, apply it to the weighted average, not the percentile score** — and keep the weighted average computed in parallel for exactly that purpose, since it costs nothing once the members have run.
 
 **Cost framing, bounded honestly.** A cost-optimal threshold sweep **cannot be reproduced here**, because counting false negatives requires knowing which *unflagged* transactions are fraud. What can be computed is an upper bound on review labour assuming every flagged transaction is a false positive: **$630 at the 95th percentile, $130 at the 99th**, using v1's own illustrative (not real-bank) figures of $5 per false positive. That is a ceiling, not an estimate. **A lower threshold is not "cheaper" in any total-cost sense** — it only reviews fewer transactions, trading off against catching less of whatever fraud is present, in a direction this project cannot quantify.
 

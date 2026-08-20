@@ -1,0 +1,13 @@
+,Raw numeric features,Engineered behavioural features,Frequency features,Categorical encoding,Scaled features,Dimensional reduction,Sequential input,Pseudo labels,SMOTE,Class weighting,Train only,Validation involved,Test involved during fitting
+Isolation Forest,1,1,1,1,2,0,0,0,0,0,2,0,0
+LOF,1,1,1,1,2,0,0,0,0,0,2,0,0
+One-Class SVM,1,1,1,1,2,0,0,0,0,0,2,0,0
+Elliptic Envelope,1,1,1,1,2,0,0,0,0,0,2,0,0
+DBSCAN,1,1,1,1,2,0,0,0,0,0,0,2,0
+HDBSCAN,1,1,1,1,2,0,0,0,0,0,0,2,0
+K-Means,1,1,1,1,2,0,0,0,0,0,2,0,0
+GMM,1,1,1,1,2,0,0,0,0,0,2,0,0
+Autoencoder,1,1,1,1,2,1,0,0,0,0,2,0,0
+VAE,1,1,1,1,2,1,0,0,0,0,2,1,0
+LSTM-AE,1,1,1,1,2,1,2,0,0,0,2,1,0
+Hybrid Ensemble,1,1,1,1,2,0,0,0,0,0,2,0,0

@@ -1,0 +1,13 @@
+,Uses scaling,Uses distance,Uses density,Uses clustering,Uses trees,Uses kernel,Uses covariance,Uses neural network,Uses sequence info,Requires contamination/threshold,Produces continuous score,Supports out-of-sample scoring,Direct interpretability,Computational cost,Real-time suitability
+Isolation Forest,2,0,0,0,2,0,0,0,0,2,2,2,1,1,2
+LOF,2,2,2,0,0,0,0,0,0,2,2,2,0,1,1
+One-Class SVM,2,1,0,0,0,2,0,0,0,2,2,2,0,1,1
+Elliptic Envelope,2,1,0,0,0,0,2,0,0,2,2,2,1,1,2
+DBSCAN,2,2,2,2,0,0,0,0,0,2,1,0,1,1,0
+HDBSCAN,2,2,2,2,0,0,0,0,0,1,2,0,1,1,0
+K-Means,2,2,0,2,0,0,0,0,0,0,2,2,1,1,2
+GMM,2,1,1,2,0,0,2,0,0,0,2,2,1,1,1
+Autoencoder,2,1,0,0,0,0,0,2,0,0,2,2,0,2,2
+VAE,2,1,0,0,0,0,0,2,0,0,2,2,0,2,1
+LSTM-AE,2,1,0,0,0,0,0,2,2,0,2,1,0,2,0
+Hybrid Ensemble,2,1,1,0,1,0,0,1,0,1,0,2,2,2,1

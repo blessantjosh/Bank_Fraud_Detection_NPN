@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 /* Thin fetch wrapper around the Bank Transaction Fraud & Anomaly Detection FastAPI backend. Same-origin -- the
-=======
-/* Thin fetch wrapper around the FastAPI backend. Same-origin -- the
->>>>>>> e0f9e7d7d7f10cdf6c809397c52228fd7d575ec2
  * backend serves this frontend directly via StaticFiles, so no base URL or
  * CORS configuration is needed. */
 const Api = (() => {

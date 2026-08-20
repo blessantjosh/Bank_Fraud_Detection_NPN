@@ -8,9 +8,6 @@
     "hdbscan": 8.88,
     "kmeans": 5.02,
     "gmm": 5.02,
-    "autoencoder": 5.02,
-    "vae": 5.02,
-    "lstm_ae": 4.82,
-    "hybrid_ensemble": 3.3
+    "hybrid_ensemble": 4.02
   }
 }

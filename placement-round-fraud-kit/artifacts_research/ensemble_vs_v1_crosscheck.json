@@ -1,18 +1,18 @@
 {
   "Weighted Avg": {
-    "spearman_vs_v1_vote_count_ROUGH_PROXY_NOT_GROUND_TRUTH": 0.444,
-    "spearman_vs_hybrid_ensemble_vote_count": 0.5039
+    "spearman_vs_v1_vote_count_ROUGH_PROXY_NOT_GROUND_TRUTH": 0.0198,
+    "spearman_vs_hybrid_ensemble_vote_count": 0.4934
   },
   "Rank (Borda)": {
-    "spearman_vs_v1_vote_count_ROUGH_PROXY_NOT_GROUND_TRUTH": 0.4419,
-    "spearman_vs_hybrid_ensemble_vote_count": 0.485
+    "spearman_vs_v1_vote_count_ROUGH_PROXY_NOT_GROUND_TRUTH": 0.0237,
+    "spearman_vs_hybrid_ensemble_vote_count": 0.484
   },
   "Percentile Avg": {
-    "spearman_vs_v1_vote_count_ROUGH_PROXY_NOT_GROUND_TRUTH": 0.4419,
-    "spearman_vs_hybrid_ensemble_vote_count": 0.4856
+    "spearman_vs_v1_vote_count_ROUGH_PROXY_NOT_GROUND_TRUTH": 0.0237,
+    "spearman_vs_hybrid_ensemble_vote_count": 0.484
   },
   "PCA Stacking": {
-    "spearman_vs_v1_vote_count_ROUGH_PROXY_NOT_GROUND_TRUTH": 0.4415,
-    "spearman_vs_hybrid_ensemble_vote_count": 0.5018
+    "spearman_vs_v1_vote_count_ROUGH_PROXY_NOT_GROUND_TRUTH": 0.0205,
+    "spearman_vs_hybrid_ensemble_vote_count": 0.4871
   }
 }

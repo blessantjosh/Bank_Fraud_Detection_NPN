@@ -1,0 +1,13 @@
+,silhouette,davies_bouldin,calinski_harabasz,flagged_rate,stability_bootstrap_jaccard
+Isolation Forest,0.565,2.5409,128.59,0.0502,0.5272
+LOF,0.617,2.374,182.11,0.0502,0.5904
+One-Class SVM,0.6642,2.1167,253.9,0.0502,
+Elliptic Envelope,0.6096,1.8392,278.92,0.0502,
+DBSCAN,0.6152,1.9066,280.59,0.0593,
+HDBSCAN,0.672,1.7238,359.54,0.0502,
+K-Means,0.6631,2.459,192.44,0.0502,
+GMM,0.3192,4.1126,20.72,0.0502,
+Autoencoder,0.496,2.9741,71.5,0.0502,0.5334
+VAE,0.4957,2.3781,106.1,0.0502,
+LSTM-AE,0.6428,2.0353,245.54,0.0504,
+Hybrid Ensemble,0.4673,3.0362,112.21,0.1007,

@@ -49,8 +49,8 @@
       "max_features": 1.0
     },
     "selected_native_anomaly_rate": 0.0533,
-    "fit_time_sec_all_configs": 11.224,
-    "cost_note": "O(n log n) per tree, trivially parallel across trees and rows; fit + score of 5 configs x 2,512 rows x 46 features took 11.22s total on CPU -- cheapest model in this comparison and the only one of the 8 classical models with a native, well-understood out-of-sample .decision_function for production scoring."
+    "fit_time_sec_all_configs": 4.982,
+    "cost_note": "O(n log n) per tree, trivially parallel across trees and rows; fit + score of 5 configs x 2,512 rows x 46 features took 4.98s total on CPU -- cheapest model in this comparison and the only one of the 8 classical models with a native, well-understood out-of-sample .decision_function for production scoring."
   },
   "lof": {
     "configs_tried": [
@@ -85,7 +85,7 @@
       "contamination": 0.05
     },
     "selected_native_anomaly_rate": 0.0486,
-    "fit_time_sec_all_configs": 5.264,
+    "fit_time_sec_all_configs": 2.473,
     "cost_note": "O(n^2) neighbor search by default (no index acceleration benefit at n=2,512, but this does not scale past low tens-of-thousands of rows without an ANN index); novelty=True mode used so it can score new transactions without refitting -- required for any production use."
   },
   "ocsvm": {
@@ -127,8 +127,8 @@
       "gamma": "scale"
     },
     "selected_native_anomaly_rate": 0.0521,
-    "fit_time_sec_all_configs": 2.524,
-    "cost_note": "SMO-based QP solve, roughly O(n^2)-O(n^3) depending on kernel and how many points end up as support vectors; on this dataset it was the slowest of the 8 classical models to fit (2.52s for 5 configs) -- fine at n=2,512 but a real scalability concern past ~50k-100k rows without subsampling or an approximate SVM variant."
+    "fit_time_sec_all_configs": 0.97,
+    "cost_note": "SMO-based QP solve, roughly O(n^2)-O(n^3) depending on kernel and how many points end up as support vectors; on this dataset it was the slowest of the 8 classical models to fit (0.97s for 5 configs) -- fine at n=2,512 but a real scalability concern past ~50k-100k rows without subsampling or an approximate SVM variant."
   },
   "elliptic_envelope": {
     "configs_tried": [
@@ -155,7 +155,7 @@
     "selected_native_anomaly_rate": 0.0462,
     "shapiro_wilk_frac_features_non_normal_p_lt_0.05": 1.0,
     "gaussian_assumption_note": "100.0% of the 46 scaled features reject the Shapiro-Wilk normality null at p<0.05 -- consistent with Phase 4's finding that TransactionAmount and its derived features are right-skewed (skew 1.74, unchanged by any affine scaler, per Phase 6) rather than Gaussian. EllipticEnvelope assumes the *joint* feature distribution is multivariate Gaussian; individual non-normality this widespread makes that assumption shaky on this dataset, so its MCD-based covariance/Mahalanobis distance should be read as a rough, assumption-violating baseline, not a well-calibrated score -- included for completeness and comparison, not recommended as the primary production detector.",
-    "fit_time_sec_all_configs": 7.529,
+    "fit_time_sec_all_configs": 3.988,
     "cost_note": "Fits a Minimum Covariance Determinant estimator, O(n * p^2) roughly; fast at this scale but the fitted covariance matrix (46x46) itself gets less reliable as skew/non-normality increase, per the note above."
   },
   "dbscan": {
@@ -222,7 +222,7 @@
     },
     "selected_noise_rate": 0.0123,
     "selected_n_clusters": 1,
-    "fit_time_sec_all_configs": 3.564,
+    "fit_time_sec_all_configs": 2.484,
     "cost_note": "O(n log n) with a spatial index in low dimensions, but the index degrades toward O(n^2) in ~46-dimensional space (curse of dimensionality on the radius query) -- consistent with the noise-rate instability across the eps grid above; also has no out-of-sample .predict, requiring a full refit to score new transactions, a real production limitation vs. Isolation Forest/LOF/OCSVM/EE.",
     "note": "DBSCAN's eps is highly sensitive in this 46-D scaled space -- the noise rate swings from 0.7% to 2.9% across the 3x3 eps/min_samples grid, which is exactly the manual-tuning brittleness HDBSCAN (Model 6) is designed to avoid."
   },
@@ -259,9 +259,9 @@
     },
     "selected_noise_rate": 0.5394,
     "selected_n_clusters": 2,
-    "fit_time_sec_all_configs": 4.392,
+    "fit_time_sec_all_configs": 2.833,
     "comparison_vs_dbscan": "Reported honestly rather than spun positive: HDBSCAN does remove the need to manually pick eps, but on this dataset that does not translate into a better result than DBSCAN. HDBSCAN's noise rate ranges 53.9%-75.0% across its 4 configs -- far higher, and no more stable in absolute terms, than DBSCAN's 0.7%-2.9% (Model 5). HDBSCAN only ever finds 2 clusters here and assigns the majority of points to neither, i.e. its stability-based cluster-extraction criterion does not find the single dense mass structure this dataset actually has (consistent with the Phase 7 UMAP/t-SNE finding of one dominant population plus small pockets, not several well-separated dense clusters) to be a 'stable' cluster worth keeping, and instead calls most of it noise. Its GLOSH outlier_scores_ (used as the anomaly score below) is still usable, but the noise-rate/cluster-count numbers themselves should not be read as 'HDBSCAN solved DBSCAN's tuning problem' on this data -- it traded manual eps-tuning brittleness for a different failure mode.",
-    "cost_note": "Builds a minimum spanning tree over mutual reachability distances, O(n log n) typical case but more expensive per-fit than DBSCAN due to the cluster-hierarchy step; 4 configs on n=2,512 took 4.39s total, still fast at this scale. Like DBSCAN, no native out-of-sample .predict (hdbscan's approximate_predict exists but requires prediction_data=True and was not exercised here)."
+    "cost_note": "Builds a minimum spanning tree over mutual reachability distances, O(n log n) typical case but more expensive per-fit than DBSCAN due to the cluster-hierarchy step; 4 configs on n=2,512 took 2.83s total, still fast at this scale. Like DBSCAN, no native out-of-sample .predict (hdbscan's approximate_predict exists but requires prediction_data=True and was not exercised here)."
   },
   "kmeans": {
     "k_range_tried": [

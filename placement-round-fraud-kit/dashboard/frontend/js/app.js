@@ -1,14 +1,9 @@
-<<<<<<< HEAD
 /* Bank Transaction Fraud & Anomaly Detection dashboard -- single-page app wiring. No framework, no build step.
-=======
-/* Bank Transaction Fraud & Anomaly Detection -- single-page app wiring. No framework, no build step.
->>>>>>> e0f9e7d7d7f10cdf6c809397c52228fd7d575ec2
  * Wired to the research_v2 pipeline (teammate 18-feature matrix): risk score is
  * `ensemble_percentile_average`, tiers are the Phase 13 (v2) percentile cutoffs,
  * and explanations are the precomputed Isolation Forest / Autoencoder SHAP rows. */
 
 const NAV_META = {
-<<<<<<< HEAD
   overview: { label: "Overview", icon: "overview", title: "Overview Dashboard", subtitle: "Portfolio-wide transaction risk, at a glance" },
   explorer: { label: "Transaction Explorer", icon: "explorer", title: "Transaction Explorer", subtitle: "Browse, search, and filter every scored transaction" },
   queue: { label: "Investigation Queue", icon: "queue", title: "Investigation Queue", subtitle: "Highest-risk transactions, sorted for triage" },
@@ -17,11 +12,6 @@ const NAV_META = {
   upload: { label: "Upload & Predict", icon: "upload", title: "Upload & Predict", subtitle: "Score a new CSV batch against the leakage-fixed XGBoost v1 pipeline" },
   history: { label: "Prediction History", icon: "history", title: "Prediction History", subtitle: "Every past Upload & Predict run, newest first" },
   simulator: { label: "Scenario Simulator", icon: "simulator", title: "Account Scenario Simulator", subtitle: "Secondary tool -- vary one real account's transaction" },
-=======
-  overview: { label: "Overview", icon: "overview", title: "Overview", subtitle: "Transaction risk monitoring dashboard" },
-  "data-input": { label: "Data Input", icon: "upload", title: "Data Input", subtitle: "Upload and analyze transaction data" },
-  investigation: { label: "Investigation", icon: "queue", title: "Investigation", subtitle: "Review flagged transactions" },
->>>>>>> e0f9e7d7d7f10cdf6c809397c52228fd7d575ec2
 };
 
 let currentPage = "overview";
@@ -37,6 +27,11 @@ let uploadHistory = []; // Store each upload session separately
 let currentHistoryIndex = 0; // Track which upload session is being viewed
 
 const queueState = { status: "", page: 1, page_size: 25 };
+const explorerState = {
+  q: "", risk_tier: "", channel: "", txn_type: "", amount_min: "", amount_max: "",
+  date_start: "", date_end: "", sort_by: "date", sort_dir: "desc", page: 1, page_size: 25,
+};
+const explorerSelectedIds = new Set();
 
 // Load uploaded transactions from localStorage
 function loadUploadedTransactions() {
@@ -109,10 +104,23 @@ function badgeHtml(status, label, icon) {
   return `<span class="badge badge-${status}">${icon}${Fmt.escapeHtml(label)}</span>`;
 }
 function riskBadge(tierCode) {
-  if (tierCode === "priority") return badgeHtml("critical", "Priority review", Icons.critical);
+  // Priority tier gets a small restrained pulse -- it's the rare (~1%),
+  // genuinely-worth-noticing tier, mirroring the "Live scoring" status-pulse.
+  if (tierCode === "priority") return badgeHtml("critical", "Priority review", `<span class="badge-pulse-dot"></span>${Icons.critical}`);
   if (tierCode === "standard") return badgeHtml("warning", "Standard review", Icons.warning);
   if (tierCode === "normal") return badgeHtml("good", "Normal", Icons.good);
   return badgeHtml("neutral", "Unknown", "");
+}
+function riskTierLabel(tierCode) {
+  if (tierCode === "priority") return "Priority review";
+  if (tierCode === "standard") return "Standard review";
+  if (tierCode === "normal") return "Normal";
+  return "Unknown";
+}
+function riskTierToastType(tierCode) {
+  if (tierCode === "priority") return "critical";
+  if (tierCode === "standard") return "warning";
+  return "good";
 }
 function queueStatusBadge(action) {
   if (action === "approved") return badgeHtml("good", "Approved", Icons.good);
@@ -140,10 +148,12 @@ function fillDatalist(id, values) {
   const el = document.getElementById(id);
   el.innerHTML = values.slice(0, 800).map((v) => `<option value="${Fmt.escapeHtml(v)}">`).join("");
 }
-function showToast(msg) {
+// type is one of "good" (default), "warning", "critical" -- maps to the
+// matching --status-* left-border color so severity is visible at a glance.
+function showToast(msg, type = "good") {
   const stack = document.getElementById("toast-stack");
   const t = document.createElement("div");
-  t.className = "toast";
+  t.className = `toast toast-${type}`;
   t.textContent = msg;
   stack.appendChild(t);
   setTimeout(() => {
@@ -154,7 +164,6 @@ function showToast(msg) {
 }
 const num = (v, d = 3) => (v === null || v === undefined ? "—" : Number(v).toFixed(d));
 
-<<<<<<< HEAD
 const AVATAR_PALETTE = [
   "--series-1-blue", "--series-2-orange", "--series-3-aqua", "--series-4-yellow",
   "--series-5-magenta", "--series-6-green", "--series-7-violet", "--series-8-red",
@@ -166,23 +175,15 @@ function avatarHtml(id) {
   for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
   const varName = AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
   return `<span class="row-avatar" style="background:color-mix(in srgb, var(${varName}) 16%, transparent); color:var(${varName})">${Fmt.escapeHtml(label)}</span>`;
-=======
-function fieldItem(label, value) {
-  return `<div><div class="field-label">${Fmt.escapeHtml(label)}</div><div class="field-value">${value}</div></div>`;
 }
 
-function modelChip(m) {
-  if (!m.applicable) return `<span class="model-chip na">${Fmt.escapeHtml(m.label)} <span class="pct">N/A</span></span>`;
-  const flagged = m.flagged;
-  const cls = flagged ? "flagged" : "";
-  const icon = flagged ? Icons.warning : "";
-  return `<span class="model-chip ${cls}">${icon}${Fmt.escapeHtml(m.label)} <span class="pct">${(m.percentile * 100).toFixed(0)}%</span></span>`;
->>>>>>> e0f9e7d7d7f10cdf6c809397c52228fd7d575ec2
-}
-
-function txRowHtml(tx, includeType) {
+function txRowHtml(tx, includeType, withCheckbox) {
   const typeCell = includeType ? `<td>${Fmt.escapeHtml(tx.txn_type)}</td>` : "";
+  const checkboxCell = withCheckbox
+    ? `<td class="checkbox-col"><input type="checkbox" class="row-select" value="${Fmt.escapeHtml(tx.transaction_id)}" aria-label="Select transaction ${Fmt.escapeHtml(tx.transaction_id)}" /></td>`
+    : "";
   return `<tr data-id="${Fmt.escapeHtml(tx.transaction_id)}">
+    ${checkboxCell}
     <td>${Fmt.escapeHtml(tx.transaction_id)}</td>
     <td><div class="cell-with-avatar">${avatarHtml(tx.account_id)}<span>${Fmt.escapeHtml(tx.account_id)}</span></div></td>
     <td>${Fmt.dateTime(tx.date)}</td>
@@ -195,18 +196,105 @@ function txRowHtml(tx, includeType) {
 }
 
 // ---------------------------------------------------------------------
+// reusable confirm modal -- returns a Promise<boolean>
+// ---------------------------------------------------------------------
+function confirmModal({ title, message, confirmLabel = "Confirm", cancelLabel = "Cancel", danger = false }) {
+  return new Promise((resolve) => {
+    const backdrop = document.getElementById("modal-backdrop");
+    const modal = document.getElementById("confirm-modal");
+    document.getElementById("confirm-modal-title").textContent = title;
+    document.getElementById("confirm-modal-body").textContent = message;
+    const confirmBtn = document.getElementById("confirm-modal-confirm");
+    const cancelBtn = document.getElementById("confirm-modal-cancel");
+    confirmBtn.textContent = confirmLabel;
+    cancelBtn.textContent = cancelLabel;
+    confirmBtn.className = danger ? "btn btn-critical" : "btn btn-primary";
+    backdrop.classList.add("visible");
+    modal.classList.add("visible");
+
+    function cleanup(result) {
+      backdrop.classList.remove("visible");
+      modal.classList.remove("visible");
+      backdrop.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKeydown);
+      confirmBtn.removeEventListener("click", onConfirm);
+      cancelBtn.removeEventListener("click", onCancel);
+      resolve(result);
+    }
+    function onConfirm() { cleanup(true); }
+    function onCancel() { cleanup(false); }
+    function onBackdrop() { cleanup(false); }
+    function onKeydown(e) {
+      if (e.key === "Escape") { e.preventDefault(); cleanup(false); }
+      else if (e.key === "Enter") { e.preventDefault(); cleanup(true); }
+    }
+    confirmBtn.addEventListener("click", onConfirm);
+    cancelBtn.addEventListener("click", onCancel);
+    backdrop.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKeydown);
+    confirmBtn.focus();
+  });
+}
+
+// ---------------------------------------------------------------------
+// KPI tiles -> Explorer, pre-filtered
+// ---------------------------------------------------------------------
+function goToExplorerWithFilter(riskTier, sortBy) {
+  Object.assign(explorerState, {
+    q: "", channel: "", txn_type: "", amount_min: "", amount_max: "", date_start: "", date_end: "",
+    risk_tier: riskTier || "", sort_by: sortBy || "date", sort_dir: "desc", page: 1,
+  });
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set("explorer-search", "");
+  set("explorer-risk-tier", riskTier || "");
+  set("explorer-channel", "");
+  set("explorer-txn-type", "");
+  set("explorer-amount-min", "");
+  set("explorer-amount-max", "");
+  set("explorer-date-start", "");
+  set("explorer-date-end", "");
+  showPage("explorer");
+}
+
+function wireKpiTileNav() {
+  document.querySelectorAll("#kpi-tiles .kpi-tile[data-kpi-nav]").forEach((tile) => {
+    const nav = tile.dataset.kpiNav;
+    const label = tile.querySelector(".kpi-label")?.textContent || "this metric";
+    tile.setAttribute("aria-label", `View ${label} in the Transaction Explorer`);
+    const go = () => {
+      if (nav === "priority") goToExplorerWithFilter("priority", "risk_score");
+      else if (nav === "standard") goToExplorerWithFilter("standard", "risk_score");
+      else if (nav === "flagged") goToExplorerWithFilter("", "risk_score");
+      else if (nav === "amount") goToExplorerWithFilter("", "amount");
+      else goToExplorerWithFilter("", "date");
+    };
+    tile.addEventListener("click", go);
+    tile.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); }
+    });
+  });
+}
+
+// ---------------------------------------------------------------------
 // overview - shows only uploaded transaction statistics
 // ---------------------------------------------------------------------
 async function loadOverview() {
-<<<<<<< HEAD
-  if (!overviewData) {
+  const kpiEls = document.querySelectorAll("#kpi-tiles .kpi-value");
+  const firstLoad = !overviewData;
+  if (firstLoad) {
     try {
       overviewData = await Api.kpis();
     } catch (e) {
-      showToast(`Could not load overview data: ${e.message}`);
+      showToast(`Could not load overview data: ${e.message}`, "critical");
       return;
     }
-    document.querySelectorAll(".kpi-value").forEach((el) => el.classList.remove("skeleton-loading"));
+  } else {
+    // Re-navigating to Overview: briefly show the skeleton again so the
+    // count-up reveal replays, matching the first-load experience.
+    kpiEls.forEach((el) => el.classList.add("skeleton-loading"));
+  }
+  const reveal = () => {
+    kpiEls.forEach((el) => el.classList.remove("skeleton-loading"));
     Fmt.countUp(document.querySelector('[data-kpi="total"]'), overviewData.total_transactions, { formatter: Fmt.int });
     Fmt.countUp(document.querySelector('[data-kpi="priority"]'), overviewData.priority_count, { formatter: Fmt.int });
     Fmt.countUp(document.querySelector('[data-kpi="standard"]'), overviewData.standard_count, { formatter: Fmt.int });
@@ -217,87 +305,28 @@ async function loadOverview() {
       `standard at ≥ ${overviewData.standard_threshold} (95th pct). No automatic block tier.`;
     renderTrend("total", computeTrend(overviewData.timeseries, "count"), "neutral");
     renderTrend("flagrate", computeTrend(overviewData.timeseries, "flag_rate_pct"), "lower-is-better");
-=======
-  document.querySelectorAll(".kpi-value").forEach((el) => el.classList.remove("skeleton-loading"));
-
-  // Load uploaded transactions
-  loadUploadedTransactions();
-
-  if (uploadedTransactions.length === 0) {
-    // No data uploaded yet - show zeros
-    document.querySelector('[data-kpi="total"]').textContent = "0";
-    document.querySelector('[data-kpi="priority"]').textContent = "0";
-    document.querySelector('[data-kpi="standard"]').textContent = "0";
-    document.querySelector('[data-kpi="flagrate"]').textContent = "0%";
-    document.querySelector('[data-kpi="avgamount"]').textContent = "$0";
-    document.getElementById("status-dataset").textContent = "No transactions analyzed yet";
-    document.getElementById("status-icon").textContent = "ℹ";
-
-    // Show empty scatter plot
-    document.getElementById("chart-outlier-scatter").innerHTML =
-      '<div class="empty-state"><p style="font-size:14px;margin-bottom:8px">No data to visualize</p><p style="font-size:12px;color:var(--text-muted)">Upload transactions in the Data Input section to see risk visualization</p></div>';
-    return;
-  }
-
-  // Calculate statistics from uploaded transactions
-  const total = uploadedTransactions.length;
-  const priority = uploadedTransactions.filter(tx => tx.fraud_percentage >= 70).length;
-  const standard = uploadedTransactions.filter(tx => tx.fraud_percentage >= 50 && tx.fraud_percentage < 70).length;
-  const flagRate = (priority + standard) / total;
-  const avgAmount = uploadedTransactions.reduce((sum, tx) => sum + (tx.amount || 0), 0) / total;
-
-  // Display statistics
-  Fmt.countUp(document.querySelector('[data-kpi="total"]'), total, { formatter: Fmt.int });
-  Fmt.countUp(document.querySelector('[data-kpi="priority"]'), priority, { formatter: Fmt.int });
-  Fmt.countUp(document.querySelector('[data-kpi="standard"]'), standard, { formatter: Fmt.int });
-  Fmt.countUp(document.querySelector('[data-kpi="flagrate"]'), flagRate, { formatter: Fmt.pct, decimals: 4 });
-  Fmt.countUp(document.querySelector('[data-kpi="avgamount"]'), avgAmount, { formatter: Fmt.money, decimals: 2 });
-
-  // Update status panel
-  document.getElementById("status-dataset").textContent = `${Fmt.int(total)} transactions analyzed`;
-  document.getElementById("status-icon").textContent = "✓";
-
-  // Load scatter plot with uploaded data
-  loadOutlierScatter();
+    renderOverviewCharts(overviewData);
+    renderTopRisk(overviewData.top_risk);
+  };
+  // On re-navigation, let the skeleton paint for one frame before revealing
+  // so the shimmer is visible instead of an instant swap.
+  if (firstLoad) reveal();
+  else requestAnimationFrame(() => requestAnimationFrame(reveal));
 }
 
-async function loadOutlierScatter() {
-  if (uploadedTransactions.length === 0) {
-    document.getElementById("chart-outlier-scatter").innerHTML =
-      '<div class="empty-state"><p style="font-size:14px;margin-bottom:8px">No data to visualize</p><p style="font-size:12px;color:var(--text-muted)">Upload transactions in the Data Input section to see risk visualization</p></div>';
-    return;
-  }
+function renderTopRisk(rows) {
+  const tbody = document.querySelector("#table-top-risk tbody");
+  if (!tbody) return;
+  tbody.innerHTML = (rows || []).map((tx) => txRowHtml(tx, false)).join("") || emptyRow(7);
+}
 
-  try {
-    const scatterData = uploadedTransactions.map(tx => {
-      const fraudPercent = tx.fraud_percentage;
-      const tierCode = fraudPercent >= 70 ? 'priority' : fraudPercent >= 50 ? 'standard' : 'normal';
-
-      return {
-        id: tx.transaction_id,
-        x: Math.random() * 10,  // Simulated risk indicator spread
-        y: fraudPercent / 100,   // Convert percentage to 0-1 scale
-        tier: tierCode,
-        score: fraudPercent / 100,
-        clickable: false,  // Uploaded transactions don't have full detail view yet
-      };
-    });
-
-    Charts.renderScatterPlot(document.getElementById("chart-outlier-scatter"), {
-      data: scatterData,
-      xLabel: "Risk Indicators",
-      yLabel: "Risk Score",
-      colorBy: "tier",
-    });
-
-    document.getElementById("outlier-subtitle").textContent =
-      `Visual representation of ${uploadedTransactions.length} analyzed transactions`;
-  } catch (err) {
-    console.error("Failed to load scatter plot:", err);
-    document.getElementById("chart-outlier-scatter").innerHTML =
-      '<div class="empty-state">Risk visualization unavailable</div>';
->>>>>>> e0f9e7d7d7f10cdf6c809397c52228fd7d575ec2
-  }
+function wireTopRiskTable() {
+  const tbody = document.querySelector("#table-top-risk tbody");
+  if (!tbody) return;
+  tbody.addEventListener("click", (e) => {
+    const tr = e.target.closest("tr");
+    if (tr && tr.dataset.id) openDrawer(tr.dataset.id);
+  });
 }
 
 // Compares the trailing window of daily values against the equal-length
@@ -329,7 +358,6 @@ function renderTrend(kpiKey, trend, mode) {
 }
 
 function renderOverviewCharts(data) {
-<<<<<<< HEAD
   const tierColor = {
     priority: Charts.cssVar("--status-critical"),
     standard: Charts.cssVar("--status-warning"),
@@ -353,10 +381,6 @@ function renderOverviewCharts(data) {
     seriesB: { key: "fraud_rate", label: "Fraud Rate", color: Charts.cssVar("--status-critical"), formatter: (v) => `${v.toFixed(1)}%` },
     xFormatter: (v) => Fmt.dateShort(new Date(v).toISOString()),
   });
-=======
-  // Overview charts are now handled by loadOutlierScatter
-  // This function is kept for compatibility but does nothing
->>>>>>> e0f9e7d7d7f10cdf6c809397c52228fd7d575ec2
 }
 
 // ---------------------------------------------------------------------
@@ -364,7 +388,7 @@ function renderOverviewCharts(data) {
 // ---------------------------------------------------------------------
 async function loadExplorer() {
   const tbody = document.querySelector("#table-explorer tbody");
-  tbody.innerHTML = skeletonRows(8, 8);
+  tbody.innerHTML = skeletonRows(8, 9);
   let resp;
   try {
     resp = await Api.transactions({
@@ -382,16 +406,84 @@ async function loadExplorer() {
       page_size: explorerState.page_size,
     });
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state">${Fmt.escapeHtml(e.message)}</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state">${Fmt.escapeHtml(e.message)}</div></td></tr>`;
     return;
   }
-  tbody.innerHTML = resp.results.map((tx) => txRowHtml(tx, true)).join("") || emptyRow(8);
+  tbody.innerHTML = resp.results.map((tx) => txRowHtml(tx, true, true)).join("") || emptyRow(9);
   document.getElementById("explorer-count").textContent = `${Fmt.int(resp.total)} transactions`;
   const totalPages = Math.max(1, Math.ceil(resp.total / resp.page_size));
   document.getElementById("explorer-page-label").textContent = `Page ${resp.page} of ${totalPages}`;
   document.getElementById("explorer-prev").disabled = resp.page <= 1;
   document.getElementById("explorer-next").disabled = resp.page >= totalPages;
   updateSortIndicators();
+  syncExplorerRowSelectionUI();
+}
+
+// ---------------------------------------------------------------------
+// explorer multi-select + bulk "add to Investigation Queue"
+// ---------------------------------------------------------------------
+function syncExplorerRowSelectionUI() {
+  const boxes = document.querySelectorAll("#table-explorer tbody .row-select");
+  let allChecked = boxes.length > 0;
+  boxes.forEach((cb) => {
+    const checked = explorerSelectedIds.has(cb.value);
+    cb.checked = checked;
+    if (!checked) allChecked = false;
+  });
+  const selectAll = document.getElementById("explorer-select-all");
+  if (selectAll) selectAll.checked = allChecked;
+  updateExplorerBulkBar();
+}
+
+function updateExplorerBulkBar() {
+  const bar = document.getElementById("explorer-bulk-bar");
+  if (!bar) return;
+  const count = explorerSelectedIds.size;
+  bar.hidden = count === 0;
+  const countEl = document.getElementById("explorer-bulk-count");
+  if (countEl) countEl.textContent = `${count} transaction${count === 1 ? "" : "s"} selected`;
+}
+
+async function handleExplorerBulkAddToQueue() {
+  if (explorerSelectedIds.size === 0) return;
+  const ids = Array.from(explorerSelectedIds);
+  loadUploadedTransactions();
+  const btn = document.getElementById("explorer-bulk-queue");
+  if (btn) { btn.disabled = true; btn.textContent = "Adding…"; }
+  let added = 0, skipped = 0, failed = 0;
+  for (const id of ids) {
+    if (uploadedTransactions.some((t) => t.transaction_id === id)) { skipped++; continue; }
+    try {
+      const d = await Api.transaction(id);
+      uploadedTransactions.push({
+        transaction_id: d.transaction_id,
+        account_id: d.account_id,
+        date: d.raw.date,
+        amount: d.raw.amount,
+        fraud_percentage: Math.round(d.risk.risk_score * 10000) / 100,
+        risk_score: d.risk.risk_score,
+        risk_tier_code: d.risk.risk_tier_code,
+        status: "pending",
+        uploaded_at: new Date().toISOString(),
+        source: "explorer_bulk",
+      });
+      added++;
+    } catch (e) {
+      failed++;
+    }
+  }
+  if (added > 0) saveUploadedTransactions();
+  explorerSelectedIds.clear();
+  syncExplorerRowSelectionUI();
+  if (btn) { btn.disabled = false; btn.textContent = "Add to Investigation Queue"; }
+  if (added > 0) {
+    const extras = [skipped ? `${skipped} already queued` : "", failed ? `${failed} failed` : ""].filter(Boolean).join(", ");
+    showToast(`${added} transaction${added === 1 ? "" : "s"} added to the Investigation Queue${extras ? ` (${extras})` : ""}.`, "good");
+  } else if (skipped > 0) {
+    showToast("Selected transactions are already in the Investigation Queue.", "warning");
+  } else {
+    showToast("Could not add the selected transactions to the queue.", "critical");
+  }
 }
 
 function updateSortIndicators() {
@@ -435,9 +527,29 @@ function wireExplorerControls() {
   document.getElementById("explorer-prev").addEventListener("click", () => { if (explorerState.page > 1) { explorerState.page--; loadExplorer(); } });
   document.getElementById("explorer-next").addEventListener("click", () => { explorerState.page++; loadExplorer(); });
   document.querySelector("#table-explorer tbody").addEventListener("click", (e) => {
+    if (e.target.closest(".checkbox-col")) return;
     const tr = e.target.closest("tr");
     if (tr && tr.dataset.id) openDrawer(tr.dataset.id);
   });
+  document.querySelector("#table-explorer tbody").addEventListener("change", (e) => {
+    if (!e.target.classList.contains("row-select")) return;
+    if (e.target.checked) explorerSelectedIds.add(e.target.value);
+    else explorerSelectedIds.delete(e.target.value);
+    syncExplorerRowSelectionUI();
+  });
+  document.getElementById("explorer-select-all").addEventListener("change", (e) => {
+    document.querySelectorAll("#table-explorer tbody .row-select").forEach((cb) => {
+      cb.checked = e.target.checked;
+      if (e.target.checked) explorerSelectedIds.add(cb.value);
+      else explorerSelectedIds.delete(cb.value);
+    });
+    updateExplorerBulkBar();
+  });
+  document.getElementById("explorer-bulk-clear").addEventListener("click", () => {
+    explorerSelectedIds.clear();
+    syncExplorerRowSelectionUI();
+  });
+  document.getElementById("explorer-bulk-queue").addEventListener("click", handleExplorerBulkAddToQueue);
 }
 
 // ---------------------------------------------------------------------
@@ -479,41 +591,39 @@ async function loadQueue() {
 
   // Render table
   tbody.innerHTML = pageItems.map((tx, i) => {
-    const isFlagged = tx.fraud_percentage >= 50;
-    const tierCode = isFlagged ? "priority" : "normal";
-    const tierLabel = isFlagged ? "Flagged" : "Normal";
-    const riskScore = (tx.fraud_percentage / 100).toFixed(4);
-
-    return `<tr>
+    return `<tr data-tx-row="${Fmt.escapeHtml(tx.transaction_id)}">
       <td class="num tabular">${start + i + 1}</td>
       <td>${Fmt.escapeHtml(tx.transaction_id)}</td>
-<<<<<<< HEAD
       <td><div class="cell-with-avatar">${avatarHtml(tx.account_id)}<span>${Fmt.escapeHtml(tx.account_id)}</span></div></td>
       <td class="num tabular">${Fmt.money(tx.amount)}</td>
       <td>${riskBadge(tx.risk_tier_code)}</td>
       <td class="num tabular">${Fmt.score(tx.risk_score)}</td>
       <td>${queueStatusBadge(tx.queue_action)}</td>
-=======
-      <td>${Fmt.escapeHtml(tx.account_id || 'N/A')}</td>
-      <td class="num tabular">${tx.amount ? Fmt.money(tx.amount) : 'N/A'}</td>
-      <td>${badgeHtml(isFlagged ? "critical" : "good", tierLabel, isFlagged ? Icons.warning : Icons.good)}</td>
-      <td class="num tabular">${tx.fraud_percentage.toFixed(1)}%</td>
-      <td>${queueStatusBadge(tx.status || 'pending')}</td>
->>>>>>> e0f9e7d7d7f10cdf6c809397c52228fd7d575ec2
       <td>
         <button class="btn btn-sm btn-ghost action-approve" data-tx-id="${Fmt.escapeHtml(tx.transaction_id)}" data-action="approved">Approve</button>
         <button class="btn btn-sm btn-ghost action-escalate" data-tx-id="${Fmt.escapeHtml(tx.transaction_id)}" data-action="escalated">Escalate</button>
-        <button class="btn btn-sm btn-ghost action-blocked" data-tx-id="${Fmt.escapeHtml(tx.transaction_id)}" data-action="blocked">Block</button>
+        <button class="btn btn-sm btn-ghost action-block" data-tx-id="${Fmt.escapeHtml(tx.transaction_id)}" data-action="blocked">Block</button>
       </td>
     </tr>`;
   }).join("");
 
-  // Wire action buttons
+  // Wire action buttons -- Block is destructive-feeling, so it's confirmed first.
   document.querySelectorAll("#table-queue [data-action]").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
+    btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const txId = btn.dataset.txId;
-      handleUploadedQueueAction(txId, btn.dataset.action);
+      const action = btn.dataset.action;
+      if (action === "blocked") {
+        const tx = uploadedTransactions.find((t) => t.transaction_id === txId);
+        const ok = await confirmModal({
+          title: "Block this transaction?",
+          message: `${txId}${tx && tx.account_id ? ` (account ${tx.account_id})` : ""} will be marked as blocked in the Investigation Queue. This is a manual triage label only -- it does not stop the transaction anywhere else.`,
+          confirmLabel: "Block transaction",
+          danger: true,
+        });
+        if (!ok) return;
+      }
+      handleUploadedQueueAction(txId, action);
     });
   });
 
@@ -525,10 +635,20 @@ async function loadQueue() {
 
 function handleUploadedQueueAction(txId, action) {
   const tx = uploadedTransactions.find(t => t.transaction_id === txId);
-  if (tx) {
-    tx.status = action;
-    saveUploadedTransactions();
-    showToast(`Transaction marked as ${action}`);
+  if (!tx) return;
+  tx.status = action;
+  saveUploadedTransactions();
+  const toastType = action === "approved" ? "good" : action === "blocked" ? "critical" : "warning";
+  showToast(`${txId} marked as ${action}.`, toastType);
+
+  // Flash the row so the state change is visually confirmed before it
+  // reorders/disappears under the next status filter.
+  const row = document.querySelector(`#table-queue tr[data-tx-row="${CSS.escape(txId)}"]`);
+  const flashClass = action === "approved" ? "row-flash-good" : action === "blocked" ? "row-flash-critical" : "row-flash-warning";
+  if (row && !Fmt.prefersReducedMotion()) {
+    row.classList.add(flashClass);
+    setTimeout(() => loadQueue(), 480);
+  } else {
     loadQueue();
   }
 }
@@ -536,10 +656,10 @@ function handleUploadedQueueAction(txId, action) {
 async function handleQueueAction(transactionId, action) {
   try {
     await Api.queueAction(transactionId, action);
-    showToast(`${transactionId} marked as ${action}.`);
+    showToast(`${transactionId} marked as ${action}.`, "good");
     loadQueue();
   } catch (e) {
-    showToast(`Could not update ${transactionId}: ${e.message}`);
+    showToast(`Could not update ${transactionId}: ${e.message}`, "critical");
   }
 }
 
@@ -553,23 +673,29 @@ function wireQueueControls() {
   document.getElementById("auto-process-btn").addEventListener("click", startAutoProcess);
 }
 
-function clearUploadedTransactions() {
+async function clearUploadedTransactions() {
   if (uploadedTransactions.length === 0) {
-    showToast("No transactions to clear");
+    showToast("No transactions to clear.", "warning");
     return;
   }
 
-  if (confirm(`Are you sure you want to clear all ${uploadedTransactions.length} analyzed transactions? This cannot be undone.`)) {
-    uploadedTransactions = [];
-    saveUploadedTransactions();
-    loadQueue();
-    // Refresh overview to show empty state
-    overviewData = null;
-    if (currentPage === 'overview') {
-      loadOverview();
-    }
-    showToast("All transactions cleared");
+  const ok = await confirmModal({
+    title: "Clear all analyzed transactions?",
+    message: `This removes all ${uploadedTransactions.length} transactions currently in the Investigation Queue. This cannot be undone.`,
+    confirmLabel: "Clear all",
+    danger: true,
+  });
+  if (!ok) return;
+
+  uploadedTransactions = [];
+  saveUploadedTransactions();
+  loadQueue();
+  // Refresh overview to show empty state
+  overviewData = null;
+  if (currentPage === 'overview') {
+    loadOverview();
   }
+  showToast("All transactions cleared.", "good");
 }
 
 // Auto-process all pending transactions based on ML fraud scores
@@ -579,27 +705,24 @@ async function startAutoProcess() {
   const pendingTransactions = uploadedTransactions.filter(tx => tx.status === 'pending');
 
   if (pendingTransactions.length === 0) {
-    showToast("No pending transactions to process");
+    showToast("No pending transactions to process.", "warning");
     return;
   }
 
   const btn = document.getElementById('auto-process-btn');
   const originalText = btn.innerHTML;
 
-  // Confirm action
-  if (!confirm(`Auto-Process ${pendingTransactions.length} pending transactions?\n\n` +
-    `The system will automatically:\n` +
-    `• Approve legitimate accounts (fraud risk < 50%)\n` +
-    `• Escalate suspicious accounts (fraud risk 60-79%)\n` +
-    `• Block high-risk accounts (fraud risk ≥ 80%)\n\n` +
-    `This action can be reversed by manually changing each transaction status.`)) {
-    return;
-  }
+  const ok = await confirmModal({
+    title: `Auto-process ${pendingTransactions.length} pending transaction${pendingTransactions.length === 1 ? "" : "s"}?`,
+    message: "The system will automatically approve legitimate accounts (risk < 50%), escalate suspicious accounts (50-79%), and block high-risk accounts (≥ 80%). Every status can still be changed individually afterward.",
+    confirmLabel: "Start auto-process",
+  });
+  if (!ok) return;
 
   // Disable button and show processing
   btn.disabled = true;
   btn.style.background = 'linear-gradient(135deg,#a0aec0 0%,#718096 100%)';
-  btn.innerHTML = '⏳ Processing...';
+  btn.textContent = 'Processing…';
 
   try {
     let approved = 0, escalated = 0, blocked = 0;
@@ -631,7 +754,7 @@ async function startAutoProcess() {
 
       // Update button text with progress
       const processed = approved + escalated + blocked;
-      btn.innerHTML = `⏳ Processing ${processed}/${pendingTransactions.length}...`;
+      btn.textContent = `Processing ${processed}/${pendingTransactions.length}…`;
 
       // Small delay for visual feedback (every 10 transactions)
       if (i % 10 === 0) {
@@ -644,14 +767,12 @@ async function startAutoProcess() {
 
     // Show success animation
     btn.style.background = 'linear-gradient(135deg,#48bb78 0%,#38a169 100%)';
-    btn.innerHTML = '✅ Complete!';
+    btn.textContent = 'Complete';
 
     // Show detailed results
     showToast(
-      `Auto-processing complete!\n\n` +
-      `✅ Approved (legitimate): ${approved}\n` +
-      `⚠️ Escalated (review needed): ${escalated}\n` +
-      `🚫 Blocked (high risk): ${blocked}`
+      `Auto-processing complete: ${approved} approved, ${escalated} escalated, ${blocked} blocked.`,
+      "good"
     );
 
     // Reload queue to show updated statuses
@@ -668,7 +789,7 @@ async function startAutoProcess() {
 
   } catch (err) {
     console.error('Auto-process error:', err);
-    showToast(`Error during auto-processing: ${err.message}`);
+    showToast(`Error during auto-processing: ${err.message}`, "critical");
 
     // Reset button on error
     btn.disabled = false;
@@ -679,7 +800,7 @@ async function startAutoProcess() {
 
 function exportUploadedTransactions() {
   if (uploadedTransactions.length === 0) {
-    showToast("No transactions to export");
+    showToast("No transactions to export.", "warning");
     return;
   }
 
@@ -697,7 +818,71 @@ function exportUploadedTransactions() {
   a.download = `fraud_analysis_${new Date().toISOString().split('T')[0]}.csv`;
   a.click();
   URL.revokeObjectURL(url);
-  showToast("Export complete");
+  showToast(`Exported ${uploadedTransactions.length} transactions.`, "good");
+}
+
+// Downloadable plain-text summary of everything currently flagged
+// (fraud_percentage >= the same 50% cutoff the queue table uses), grouped
+// by triage status. Client-side only -- built from the same uploadedTransactions
+// the Investigation Queue already renders.
+function generateFraudReport() {
+  loadUploadedTransactions();
+  const flagged = uploadedTransactions.filter((tx) => tx.fraud_percentage >= 50);
+  if (flagged.length === 0) {
+    showToast("No flagged transactions to report on yet.", "warning");
+    return;
+  }
+
+  const byStatus = { pending: [], approved: [], escalated: [], blocked: [] };
+  flagged.forEach((tx) => { (byStatus[tx.status || "pending"] || byStatus.pending).push(tx); });
+  const totalAmount = flagged.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+  const generatedAt = new Date();
+
+  const lines = [];
+  lines.push("BANK TRANSACTION FRAUD & ANOMALY DETECTION");
+  lines.push("Investigation Queue -- Flagged Transaction Report");
+  lines.push(`Generated: ${generatedAt.toLocaleString()}`);
+  lines.push("=".repeat(64));
+  lines.push("");
+  lines.push(`Flagged transactions:  ${flagged.length} of ${uploadedTransactions.length} analyzed (>= 50% predicted fraud probability)`);
+  lines.push(`Total flagged amount:  ${Fmt.money(totalAmount)}`);
+  lines.push(`Pending review:        ${byStatus.pending.length}`);
+  lines.push(`Approved:              ${byStatus.approved.length}`);
+  lines.push(`Escalated:             ${byStatus.escalated.length}`);
+  lines.push(`Blocked:               ${byStatus.blocked.length}`);
+  lines.push("");
+  lines.push("-".repeat(64));
+
+  ["pending", "escalated", "blocked", "approved"].forEach((status) => {
+    const rows = byStatus[status];
+    if (!rows.length) return;
+    lines.push("");
+    lines.push(`${status.toUpperCase()} (${rows.length})`);
+    rows
+      .slice()
+      .sort((a, b) => b.fraud_percentage - a.fraud_percentage)
+      .forEach((tx) => {
+        lines.push(
+          `  ${(tx.transaction_id || "—").padEnd(16)} ${(tx.account_id || "—").padEnd(12)} ` +
+          `${(tx.date || "—").slice(0, 10).padEnd(12)} ${String(tx.amount ?? "—").padEnd(12)} ` +
+          `${tx.fraud_percentage.toFixed(1)}% fraud probability`
+        );
+      });
+  });
+  lines.push("");
+  lines.push("-".repeat(64));
+  lines.push("Note: this report is a manual triage summary generated in the analyst's");
+  lines.push("browser from the current Investigation Queue. It is not a filed SAR/CTR");
+  lines.push("and does not itself change any transaction's status.");
+
+  const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `fraud_report_${generatedAt.toISOString().split("T")[0]}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast(`Fraud report generated: ${flagged.length} flagged transactions.`, "good");
 }
 
 // ---------------------------------------------------------------------
@@ -706,14 +891,54 @@ function exportUploadedTransactions() {
 async function loadComparison() {
   if (!comparisonData) {
     try { comparisonData = await Api.modelComparison(); }
-    catch (e) { showToast(`Could not load model comparison: ${e.message}`); return; }
+    catch (e) { showToast(`Could not load model comparison: ${e.message}`, "critical"); return; }
   }
   renderComparison(comparisonData);
 }
 
+const comparisonSortState = { by: null, dir: "desc" };
+
+function sortModelsData(models) {
+  if (!comparisonSortState.by) return models;
+  const key = comparisonSortState.by;
+  const dir = comparisonSortState.dir === "asc" ? 1 : -1;
+  return models.slice().sort((a, b) => {
+    let av = a[key], bv = b[key];
+    if (typeof av === "string" || typeof bv === "string") {
+      return String(av ?? "").localeCompare(String(bv ?? "")) * dir;
+    }
+    if (av === null || av === undefined) av = -Infinity;
+    if (bv === null || bv === undefined) bv = -Infinity;
+    return (av - bv) * dir;
+  });
+}
+
+function updateModelsSortIndicators() {
+  document.querySelectorAll("#table-models th[data-sort]").forEach((th) => {
+    th.querySelector(".sort-caret")?.remove();
+    if (th.dataset.sort === comparisonSortState.by) {
+      const caret = document.createElement("span");
+      caret.className = "sort-caret";
+      caret.innerHTML = comparisonSortState.dir === "asc" ? Icons.caretUp : Icons.caretDown;
+      th.appendChild(caret);
+    }
+  });
+}
+
+function wireModelsSort() {
+  document.querySelectorAll("#table-models th[data-sort]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sort;
+      if (comparisonSortState.by === key) comparisonSortState.dir = comparisonSortState.dir === "asc" ? "desc" : "asc";
+      else { comparisonSortState.by = key; comparisonSortState.dir = key === "label" ? "asc" : "desc"; }
+      if (comparisonData) renderComparison(comparisonData);
+    });
+  });
+}
+
 function renderComparison(data) {
   const tbody = document.querySelector("#table-models tbody");
-  tbody.innerHTML = data.models.map((m) => `<tr>
+  tbody.innerHTML = sortModelsData(data.models).map((m) => `<tr>
       <td>${Fmt.escapeHtml(m.label)}${m.in_ensemble ? "" : ' <span class="freq-hint">not an ensemble input</span>'}</td>
       <td class="num tabular">${m.n_flagged_top5pct === null ? "—" : Fmt.int(m.n_flagged_top5pct)}</td>
       <td class="num tabular">${m.flagged_rate_pct === null || m.flagged_rate_pct === undefined ? "—" : m.flagged_rate_pct.toFixed(2) + "%"}</td>
@@ -724,6 +949,7 @@ function renderComparison(data) {
       <td class="num tabular">${num(m.mean_jaccard, 3)}</td>
       <td class="num tabular">${num(m.ensemble_weight, 3)}</td>
     </tr>`).join("");
+  updateModelsSortIndicators();
 
   document.getElementById("model-table-note").textContent =
     `Flagged counts are each model's top-5%-by-score partition. LSTM-AE is restricted to the ` +
@@ -783,7 +1009,7 @@ function renderComparison(data) {
 async function loadExplainability() {
   if (!explainabilityData) {
     try { explainabilityData = await Api.explainability(); }
-    catch (e) { showToast(`Could not load explainability data: ${e.message}`); return; }
+    catch (e) { showToast(`Could not load explainability data: ${e.message}`, "critical"); return; }
   }
   renderExplainability(explainabilityData);
 }
@@ -860,7 +1086,7 @@ async function loadSimulatorOptions() {
       `Secondary tool — vary one real account's transaction and see how the score moves. ` +
       `The high-amount flag fires above $${simOptions.high_amount_threshold} (the dataset's 95th percentile, frozen).`;
   } catch (e) {
-    showToast(`Could not load simulator reference data: ${e.message}`);
+    showToast(`Could not load simulator reference data: ${e.message}`, "critical");
   }
 }
 
@@ -915,8 +1141,9 @@ function wireSimulatorForm() {
     try {
       lastSimResult = await Api.score(payload);
       renderSimResult(lastSimResult);
+      showToast(`Scenario scored: ${riskTierLabel(lastSimResult.risk_tier_code)} (${Fmt.score(lastSimResult.two_model_percentile_average)}).`, riskTierToastType(lastSimResult.risk_tier_code));
     } catch (e2) {
-      showToast(`Could not score this scenario: ${e2.message}`);
+      showToast(`Could not score this scenario: ${e2.message}`, "critical");
     }
   });
 }
@@ -984,7 +1211,6 @@ function uploadRowHtml(r) {
   </tr>`;
 }
 
-<<<<<<< HEAD
 function updateUploadDropzone() {
   const input = document.getElementById("upload-file-input");
   const file = input.files && input.files[0];
@@ -1034,590 +1260,12 @@ function wireUploadDropzone() {
     if (dropped) {
       input.files = e.dataTransfer.files;
       updateUploadDropzone();
-=======
-// ---------------------------------------------------------------------
-// fraud report generation
-// ---------------------------------------------------------------------
-function generateFraudReport() {
-  const fraudulent = uploadedTransactions.filter(tx => tx.fraud_percentage >= 50);
-
-  if (fraudulent.length === 0) {
-    showToast("No fraudulent transactions to report");
-    return;
-  }
-
-  // Show format selection dialog
-  showReportFormatDialog(fraudulent);
-}
-
-function showReportFormatDialog(fraudulent) {
-  // Create modal overlay
-  const overlay = document.createElement('div');
-  overlay.style.cssText = `
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.5); z-index: 10000;
-    display: flex; align-items: center; justify-content: center;
-  `;
-
-  const dialog = document.createElement('div');
-  dialog.style.cssText = `
-    background: var(--card-bg, #fff);
-    padding: 32px;
-    border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-    max-width: 500px;
-    width: 90%;
-  `;
-
-  dialog.innerHTML = `
-    <h2 style="margin: 0 0 16px 0; color: var(--text-primary);">Generate Fraud Report</h2>
-    <p style="margin: 0 0 24px 0; color: var(--text-secondary);">
-      ${fraudulent.length} fraudulent transaction(s) detected. Choose report format:
-    </p>
-    <div style="display: flex; flex-direction: column; gap: 12px;">
-      <button id="report-csv-btn" class="btn btn-primary" style="width: 100%; padding: 16px;">
-        📊 Download CSV Report
-        <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">Structured data for analysis & spreadsheets</div>
-      </button>
-      <button id="report-pdf-btn" class="btn btn-primary" style="width: 100%; padding: 16px;">
-        📄 Generate PDF Report
-        <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">Colorful formatted report (opens in new window)</div>
-      </button>
-      <button id="report-both-btn" class="btn btn-good" style="width: 100%; padding: 16px;">
-        📦 Download Both Formats
-        <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">CSV + PDF for complete documentation</div>
-      </button>
-      <button id="report-cancel-btn" class="btn btn-ghost" style="width: 100%; margin-top: 8px;">
-        Cancel
-      </button>
-    </div>
-  `;
-
-  overlay.appendChild(dialog);
-  document.body.appendChild(overlay);
-
-  // Wire up buttons
-  document.getElementById('report-csv-btn').addEventListener('click', () => {
-    generateCSVReport(fraudulent);
-    document.body.removeChild(overlay);
-  });
-
-  document.getElementById('report-pdf-btn').addEventListener('click', () => {
-    generatePDFReport(fraudulent);
-    document.body.removeChild(overlay);
-  });
-
-  document.getElementById('report-both-btn').addEventListener('click', () => {
-    generateCSVReport(fraudulent);
-    setTimeout(() => generatePDFReport(fraudulent), 500);
-    document.body.removeChild(overlay);
-  });
-
-  document.getElementById('report-cancel-btn').addEventListener('click', () => {
-    document.body.removeChild(overlay);
-  });
-
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) {
-      document.body.removeChild(overlay);
->>>>>>> e0f9e7d7d7f10cdf6c809397c52228fd7d575ec2
     }
   });
-}
-
-<<<<<<< HEAD
-function wireUploadForm() {
-  wireUploadDropzone();
-=======
-function generateCSVReport(fraudulent) {
-  // Group by account
-  const accountMap = {};
-  fraudulent.forEach(tx => {
-    const accId = tx.account_id || 'Unknown';
-    if (!accountMap[accId]) {
-      accountMap[accId] = [];
-    }
-    accountMap[accId].push(tx);
-  });
-
-  const reportDate = new Date().toISOString();
-
-  // CSV Header
-  let csv = "Transaction ID,Account ID,Date,Amount,Fraud Score (%),Risk Level,Status,Recommended Action,Detection Summary,Uploaded At\n";
-
-  // Add each transaction
-  Object.entries(accountMap).forEach(([accountId, transactions]) => {
-    const avgRisk = transactions.reduce((sum, tx) => sum + tx.fraud_percentage, 0) / transactions.length;
-
-    transactions.forEach(tx => {
-      const riskLevel = tx.fraud_percentage >= 80 ? 'CRITICAL' :
-                       tx.fraud_percentage >= 70 ? 'HIGH' :
-                       tx.fraud_percentage >= 60 ? 'ELEVATED' : 'MODERATE';
-
-      const action = tx.fraud_percentage >= 80 ? 'Block Account Immediately' :
-                    tx.fraud_percentage >= 70 ? 'Place Temporary Hold' :
-                    tx.fraud_percentage >= 60 ? 'Priority Review Required' :
-                    'Schedule Manual Review';
-
-      const detection = `Fraud probability ${tx.fraud_percentage.toFixed(1)}% - Pattern analysis flagged suspicious behavior`;
-
-      // Escape CSV fields
-      const escapeCSV = (val) => {
-        if (val === null || val === undefined) return '';
-        const str = String(val);
-        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-          return `"${str.replace(/"/g, '""')}"`;
-        }
-        return str;
-      };
-
-      csv += `${escapeCSV(tx.transaction_id)},`;
-      csv += `${escapeCSV(accountId)},`;
-      csv += `${escapeCSV(tx.date || 'N/A')},`;
-      csv += `${escapeCSV((tx.amount || 0).toFixed(2))},`;
-      csv += `${tx.fraud_percentage.toFixed(2)},`;
-      csv += `${riskLevel},`;
-      csv += `${escapeCSV(tx.status || 'Pending')},`;
-      csv += `${escapeCSV(action)},`;
-      csv += `${escapeCSV(detection)},`;
-      csv += `${escapeCSV(tx.uploaded_at || reportDate)}\n`;
-    });
-  });
-
-  // Download CSV
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `fraud_report_${new Date().toISOString().split('T')[0]}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-
-  showToast(`CSV report generated for ${fraudulent.length} transactions`);
-}
-
-function generatePDFReport(fraudulent) {
-  // Group by account
-  const accountMap = {};
-  fraudulent.forEach(tx => {
-    const accId = tx.account_id || 'Unknown';
-    if (!accountMap[accId]) {
-      accountMap[accId] = [];
-    }
-    accountMap[accId].push(tx);
-  });
-
-  const reportDate = new Date().toLocaleString();
-  const totalAmount = fraudulent.reduce((sum, tx) => sum + (tx.amount || 0), 0);
-  const fraudRate = ((fraudulent.length / uploadedTransactions.length) * 100).toFixed(2);
-
-  // Generate HTML report
-  const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Fraud Detection Report - ${new Date().toISOString().split('T')[0]}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      padding: 40px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-    }
-    .report-container {
-      max-width: 1200px;
-      margin: 0 auto;
-      background: white;
-      border-radius: 16px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      overflow: hidden;
-    }
-    .report-header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 40px;
-      text-align: center;
-    }
-    .report-header h1 {
-      font-size: 32px;
-      margin-bottom: 8px;
-      font-weight: 700;
-    }
-    .report-header p {
-      font-size: 16px;
-      opacity: 0.95;
-    }
-    .report-body {
-      padding: 40px;
-    }
-    .summary-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 20px;
-      margin-bottom: 40px;
-    }
-    .summary-card {
-      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-      color: white;
-      padding: 24px;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
-    .summary-card.blue { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
-    .summary-card.green { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
-    .summary-card.orange { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
-    .summary-card.purple { background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); }
-    .summary-card h3 {
-      font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 8px;
-      opacity: 0.9;
-    }
-    .summary-card .value {
-      font-size: 32px;
-      font-weight: 700;
-    }
-    .section-title {
-      font-size: 24px;
-      color: #2d3748;
-      margin: 40px 0 20px 0;
-      padding-bottom: 12px;
-      border-bottom: 3px solid #667eea;
-      font-weight: 700;
-    }
-    .account-card {
-      background: #f7fafc;
-      border-left: 4px solid #667eea;
-      padding: 24px;
-      margin-bottom: 24px;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    }
-    .account-card.critical { border-left-color: #f56565; }
-    .account-card.high { border-left-color: #ed8936; }
-    .account-card.elevated { border-left-color: #ecc94b; }
-    .account-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-    .account-id {
-      font-size: 20px;
-      font-weight: 700;
-      color: #2d3748;
-    }
-    .risk-badge {
-      padding: 8px 16px;
-      border-radius: 20px;
-      font-weight: 600;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .risk-badge.critical { background: #fed7d7; color: #c53030; }
-    .risk-badge.high { background: #feebc8; color: #c05621; }
-    .risk-badge.elevated { background: #fefcbf; color: #b7791f; }
-    .risk-badge.moderate { background: #bee3f8; color: #2c5282; }
-    .account-stats {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 16px;
-      margin-bottom: 20px;
-    }
-    .stat {
-      background: white;
-      padding: 12px;
-      border-radius: 6px;
-    }
-    .stat-label {
-      font-size: 12px;
-      color: #718096;
-      margin-bottom: 4px;
-    }
-    .stat-value {
-      font-size: 20px;
-      font-weight: 700;
-      color: #2d3748;
-    }
-    .detection-box {
-      background: #edf2f7;
-      padding: 16px;
-      border-radius: 8px;
-      margin: 16px 0;
-    }
-    .detection-box h4 {
-      color: #2d3748;
-      margin-bottom: 8px;
-      font-size: 14px;
-      font-weight: 600;
-    }
-    .detection-box ul {
-      list-style: none;
-      padding-left: 0;
-    }
-    .detection-box li {
-      padding: 4px 0;
-      color: #4a5568;
-      font-size: 14px;
-    }
-    .detection-box li:before {
-      content: "✓ ";
-      color: #48bb78;
-      font-weight: bold;
-      margin-right: 8px;
-    }
-    .action-box {
-      background: #fff5f5;
-      border: 2px solid #fc8181;
-      padding: 16px;
-      border-radius: 8px;
-      margin: 16px 0;
-    }
-    .action-box.high { background: #fffaf0; border-color: #f6ad55; }
-    .action-box.moderate { background: #ebf8ff; border-color: #63b3ed; }
-    .action-box h4 {
-      color: #c53030;
-      margin-bottom: 8px;
-      font-size: 14px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-    .action-box.high h4 { color: #c05621; }
-    .action-box.moderate h4 { color: #2c5282; }
-    .action-box ul {
-      list-style: none;
-      padding-left: 0;
-    }
-    .action-box li {
-      padding: 4px 0;
-      font-size: 14px;
-      color: #2d3748;
-    }
-    .action-box li:before {
-      content: "→ ";
-      color: #e53e3e;
-      font-weight: bold;
-      margin-right: 8px;
-    }
-    .action-box.high li:before { color: #dd6b20; }
-    .action-box.moderate li:before { color: #3182ce; }
-    .transaction-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 16px;
-    }
-    .transaction-table th {
-      background: #2d3748;
-      color: white;
-      padding: 12px;
-      text-align: left;
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-    .transaction-table td {
-      padding: 12px;
-      border-bottom: 1px solid #e2e8f0;
-      font-size: 14px;
-      color: #4a5568;
-    }
-    .transaction-table tr:hover {
-      background: #f7fafc;
-    }
-    .disclaimer {
-      background: #fffaf0;
-      border: 2px solid #f6ad55;
-      padding: 24px;
-      border-radius: 8px;
-      margin-top: 40px;
-    }
-    .disclaimer h4 {
-      color: #c05621;
-      margin-bottom: 12px;
-      font-size: 16px;
-      font-weight: 700;
-    }
-    .disclaimer p {
-      color: #744210;
-      font-size: 14px;
-      line-height: 1.6;
-      margin-bottom: 8px;
-    }
-    @media print {
-      body { background: white; padding: 0; }
-      .report-container { box-shadow: none; }
-    }
-  </style>
-</head>
-<body>
-  <div class="report-container">
-    <div class="report-header">
-      <h1>🛡️ Fraud Detection Report</h1>
-      <p>Generated: ${reportDate}</p>
-    </div>
-
-    <div class="report-body">
-      <!-- Executive Summary -->
-      <div class="summary-grid">
-        <div class="summary-card blue">
-          <h3>Total Transactions</h3>
-          <div class="value">${uploadedTransactions.length}</div>
-        </div>
-        <div class="summary-card">
-          <h3>Fraudulent Detected</h3>
-          <div class="value">${fraudulent.length}</div>
-        </div>
-        <div class="summary-card orange">
-          <h3>Fraud Rate</h3>
-          <div class="value">${fraudRate}%</div>
-        </div>
-        <div class="summary-card green">
-          <h3>Affected Accounts</h3>
-          <div class="value">${Object.keys(accountMap).length}</div>
-        </div>
-        <div class="summary-card purple">
-          <h3>Total Amount at Risk</h3>
-          <div class="value">$${totalAmount.toFixed(2)}</div>
-        </div>
-      </div>
-
-      <h2 class="section-title">📋 Detailed Findings by Account</h2>
-
-      ${Object.entries(accountMap).map(([accountId, transactions]) => {
-        const avgRisk = transactions.reduce((sum, tx) => sum + tx.fraud_percentage, 0) / transactions.length;
-        const totalAmount = transactions.reduce((sum, tx) => sum + (tx.amount || 0), 0);
-
-        const riskLevel = avgRisk >= 80 ? 'critical' : avgRisk >= 70 ? 'high' : avgRisk >= 60 ? 'elevated' : 'moderate';
-        const riskLabel = avgRisk >= 80 ? 'CRITICAL' : avgRisk >= 70 ? 'HIGH' : avgRisk >= 60 ? 'ELEVATED' : 'MODERATE';
-
-        return `
-          <div class="account-card ${riskLevel}">
-            <div class="account-header">
-              <div class="account-id">Account: ${Fmt.escapeHtml(accountId)}</div>
-              <div class="risk-badge ${riskLevel}">${riskLabel} RISK</div>
-            </div>
-
-            <div class="account-stats">
-              <div class="stat">
-                <div class="stat-label">Fraudulent Transactions</div>
-                <div class="stat-value">${transactions.length}</div>
-              </div>
-              <div class="stat">
-                <div class="stat-label">Average Fraud Score</div>
-                <div class="stat-value">${avgRisk.toFixed(1)}%</div>
-              </div>
-              <div class="stat">
-                <div class="stat-label">Total Amount</div>
-                <div class="stat-value">$${totalAmount.toFixed(2)}</div>
-              </div>
-            </div>
-
-            <div class="detection-box">
-              <h4>🔍 How Fraud Was Detected</h4>
-              <ul>
-                ${avgRisk >= 70 ? `
-                  <li>High fraud probability detected (${avgRisk.toFixed(1)}%)</li>
-                  <li>Multiple risk indicators flagged across transactions</li>
-                  <li>Pattern analysis identified suspicious behavior</li>
-                  <li>Transaction characteristics match known fraud patterns</li>
-                ` : `
-                  <li>Moderate fraud probability detected (${avgRisk.toFixed(1)}%)</li>
-                  <li>Several risk indicators present in transaction data</li>
-                  <li>Anomaly detection flagged unusual patterns</li>
-                  <li>Manual review recommended for verification</li>
-                `}
-              </ul>
-            </div>
-
-            <div class="action-box ${avgRisk >= 80 ? 'critical' : avgRisk >= 60 ? 'high' : 'moderate'}">
-              <h4>⚠️ Recommended Actions</h4>
-              <ul>
-                ${avgRisk >= 80 ? `
-                  <li>IMMEDIATE ACTION REQUIRED - Block account immediately</li>
-                  <li>Flag all pending transactions for review</li>
-                  <li>Initiate fraud investigation with security team</li>
-                  <li>Contact account holder for immediate verification</li>
-                  <li>Review all recent account activity for additional fraud</li>
-                  <li>Document all findings in case management system</li>
-                ` : avgRisk >= 60 ? `
-                  <li>HIGH PRIORITY - Place temporary hold on account</li>
-                  <li>Contact account holder immediately for verification</li>
-                  <li>Review transaction details manually within 4 hours</li>
-                  <li>Monitor account for additional suspicious activity</li>
-                  <li>Consider enhanced account verification requirements</li>
-                  <li>Escalate to fraud investigation team if confirmed</li>
-                ` : `
-                  <li>STANDARD REVIEW - Schedule manual review within 24 hours</li>
-                  <li>Contact account holder for transaction confirmation</li>
-                  <li>Monitor account for emerging fraud patterns</li>
-                  <li>Document findings in case management system</li>
-                  <li>Consider additional verification for large transactions</li>
-                `}
-              </ul>
-            </div>
-
-            <table class="transaction-table">
-              <thead>
-                <tr>
-                  <th>Transaction ID</th>
-                  <th>Date</th>
-                  <th>Amount</th>
-                  <th>Fraud Score</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${transactions.map(tx => `
-                  <tr>
-                    <td>${Fmt.escapeHtml(tx.transaction_id)}</td>
-                    <td>${Fmt.escapeHtml(tx.date || 'N/A')}</td>
-                    <td>$${(tx.amount || 0).toFixed(2)}</td>
-                    <td><strong>${tx.fraud_percentage.toFixed(1)}%</strong></td>
-                    <td>${Fmt.escapeHtml(tx.status || 'Pending Review')}</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        `;
-      }).join('')}
-
-      <div class="disclaimer">
-        <h4>⚠️ IMPORTANT DISCLAIMER</h4>
-        <p>This report is generated by an automated fraud detection system using advanced machine learning algorithms.</p>
-        <p>All findings and recommendations must be verified by authorized personnel before taking action.</p>
-        <p>Do not take automated blocking actions without proper review and approval from management.</p>
-        <p>This report is for internal use only and contains sensitive information. Handle according to your organization's data security policies.</p>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    // Auto-print dialog on load
-    window.onload = function() {
-      setTimeout(() => {
-        window.print();
-      }, 500);
-    };
-  </script>
-</body>
-</html>`;
-
-  // Open in new window
-  const printWindow = window.open('', '_blank');
-  printWindow.document.write(html);
-  printWindow.document.close();
-
-  showToast(`PDF report opened in new window - Use "Print to PDF" to save`);
 }
 
 function wireUploadForm() {
-  // Wire report generation button
-  document.getElementById("generate-report-btn").addEventListener("click", generateFraudReport);
-
->>>>>>> e0f9e7d7d7f10cdf6c809397c52228fd7d575ec2
+  wireUploadDropzone();
   document.getElementById("upload-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const input = document.getElementById("upload-file-input");
@@ -1664,10 +1312,10 @@ function wireUploadForm() {
       resultsCard.style.display = "block";
 
       // Show success message
-      showToast(`${resp.fraud_count} suspicious transactions saved to Investigation tab`);
+      showToast(`${resp.fraud_count} suspicious transactions saved to the Investigation Queue.`, resp.fraud_count > 0 ? "warning" : "good");
     } catch (err) {
       statusEl.textContent = "";
-      showToast(err.message);
+      showToast(err.message, "critical");
     } finally {
       btn.disabled = false;
       btn.textContent = "Analyze Transactions";
@@ -1705,7 +1353,7 @@ async function loadHistory() {
       historyEntries.map(historyRowHtml).join("") || emptyRow(7);
     document.getElementById("history-detail-card").style.display = "none";
   } catch (err) {
-    showToast(err.message);
+    showToast(err.message, "critical");
   }
 }
 
@@ -1713,7 +1361,7 @@ function openHistoryDetail(id) {
   const entry = historyEntries.find((e) => e.id === id);
   const card = document.getElementById("history-detail-card");
   if (!entry || !entry.results) {
-    showToast("No saved per-transaction detail for this run (it predates this feature).");
+    showToast("No saved per-transaction detail for this run (it predates this feature).", "warning");
     card.style.display = "none";
     return;
   }
@@ -1803,6 +1451,147 @@ function wireDrawer() {
   document.getElementById("drawer-backdrop").addEventListener("click", closeDrawer);
   document.getElementById("drawer-close-btn").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+}
+
+// ---------------------------------------------------------------------
+// command palette -- Ctrl/Cmd+K quick jump to a transaction or account
+// ---------------------------------------------------------------------
+let paletteActiveIndex = -1;
+let paletteResults = [];
+
+function isPaletteOpen() {
+  return document.getElementById("command-palette").classList.contains("visible");
+}
+function openPalette() {
+  document.getElementById("palette-backdrop").classList.add("visible");
+  document.getElementById("command-palette").classList.add("visible");
+  const input = document.getElementById("palette-input");
+  input.value = "";
+  renderPaletteResults([], "");
+  input.focus();
+}
+function closePalette() {
+  document.getElementById("palette-backdrop").classList.remove("visible");
+  document.getElementById("command-palette").classList.remove("visible");
+}
+
+function renderPaletteResults(results, query) {
+  paletteResults = results;
+  paletteActiveIndex = results.length ? 0 : -1;
+  const el = document.getElementById("palette-results");
+  if (!query) {
+    el.innerHTML = `<div class="palette-empty">Type a transaction or account ID to jump straight to it.</div>`;
+    return;
+  }
+  if (!results.length) {
+    el.innerHTML = `<div class="palette-empty">No matches for "${Fmt.escapeHtml(query)}".</div>`;
+    return;
+  }
+  el.innerHTML = results.map((tx, i) => `
+    <div class="palette-result-item${i === 0 ? " active" : ""}" data-index="${i}">
+      <div class="palette-result-main">
+        ${riskBadge(tx.risk_tier_code)}
+        <span class="palette-result-id">${Fmt.escapeHtml(tx.transaction_id)}</span>
+      </div>
+      <span class="palette-result-sub">${Fmt.escapeHtml(tx.account_id)} &middot; ${Fmt.money(tx.amount)}</span>
+    </div>`).join("");
+}
+
+function setPaletteActive(index) {
+  const items = document.querySelectorAll(".palette-result-item");
+  if (!items.length) return;
+  paletteActiveIndex = ((index % items.length) + items.length) % items.length;
+  items.forEach((it, i) => it.classList.toggle("active", i === paletteActiveIndex));
+  items[paletteActiveIndex].scrollIntoView({ block: "nearest" });
+}
+
+function selectPaletteResult(index) {
+  const tx = paletteResults[index];
+  if (!tx) return;
+  closePalette();
+  goToExplorerWithFilter("", "date");
+  explorerState.q = tx.transaction_id;
+  const searchInput = document.getElementById("explorer-search");
+  if (searchInput) searchInput.value = tx.transaction_id;
+  loadExplorer().then(() => openDrawer(tx.transaction_id));
+}
+
+function wireCommandPalette() {
+  const input = document.getElementById("palette-input");
+  const searchIcon = document.getElementById("palette-search-icon");
+  if (searchIcon) searchIcon.innerHTML = Icons.search;
+
+  input.addEventListener("input", Fmt.debounce(async (e) => {
+    const q = e.target.value.trim();
+    if (!q) { renderPaletteResults([], ""); return; }
+    try {
+      const resp = await Api.transactions({ q, page: 1, page_size: 8, sort_by: "risk_score", sort_dir: "desc" });
+      renderPaletteResults(resp.results, q);
+    } catch (err) {
+      document.getElementById("palette-results").innerHTML = `<div class="palette-empty">${Fmt.escapeHtml(err.message)}</div>`;
+    }
+  }, 220));
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setPaletteActive(paletteActiveIndex + 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setPaletteActive(paletteActiveIndex - 1); }
+    else if (e.key === "Enter") { e.preventDefault(); if (paletteActiveIndex >= 0) selectPaletteResult(paletteActiveIndex); }
+  });
+
+  document.getElementById("palette-results").addEventListener("click", (e) => {
+    const item = e.target.closest(".palette-result-item");
+    if (item) selectPaletteResult(Number(item.dataset.index));
+  });
+
+  document.getElementById("palette-backdrop").addEventListener("click", closePalette);
+}
+
+// ---------------------------------------------------------------------
+// keyboard shortcuts help popup
+// ---------------------------------------------------------------------
+function isShortcutsModalOpen() {
+  return document.getElementById("shortcuts-modal").classList.contains("visible");
+}
+function openShortcutsModal() {
+  document.getElementById("shortcuts-modal-backdrop").classList.add("visible");
+  document.getElementById("shortcuts-modal").classList.add("visible");
+}
+function closeShortcutsModal() {
+  document.getElementById("shortcuts-modal-backdrop").classList.remove("visible");
+  document.getElementById("shortcuts-modal").classList.remove("visible");
+}
+function wireShortcutsHelp() {
+  document.getElementById("shortcuts-fab").addEventListener("click", openShortcutsModal);
+  document.getElementById("shortcuts-modal-close").addEventListener("click", closeShortcutsModal);
+  document.getElementById("shortcuts-modal-backdrop").addEventListener("click", closeShortcutsModal);
+}
+
+// ---------------------------------------------------------------------
+// global keyboard shortcuts: Ctrl/Cmd+K (quick jump), ? (shortcut help),
+// Escape (close whichever popup is open)
+// ---------------------------------------------------------------------
+function wireGlobalShortcuts() {
+  document.addEventListener("keydown", (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && (e.key === "k" || e.key === "K")) {
+      e.preventDefault();
+      if (isPaletteOpen()) document.getElementById("palette-input").focus();
+      else openPalette();
+      return;
+    }
+    if (e.key === "Escape") {
+      if (isPaletteOpen()) closePalette();
+      if (isShortcutsModalOpen()) closeShortcutsModal();
+      return;
+    }
+    if (e.key === "?" && !mod) {
+      const active = document.activeElement;
+      const tag = active ? active.tagName : "";
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(tag) || (active && active.isContentEditable)) return;
+      e.preventDefault();
+      openShortcutsModal();
+    }
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -2151,7 +1940,6 @@ function showPage(page) {
   document.getElementById("page-title").textContent = meta.title;
   document.getElementById("page-subtitle").textContent = meta.subtitle;
   Charts.hideTooltip();
-<<<<<<< HEAD
   if (page === "overview") loadOverview();
   else if (page === "explorer") loadExplorer();
   else if (page === "queue") loadQueue();
@@ -2159,68 +1947,6 @@ function showPage(page) {
   else if (page === "explainability") loadExplainability();
   else if (page === "history") loadHistory();
   else if (page === "simulator") loadSimulatorOptions();
-=======
-
-  if (page === "overview") {
-    loadOverview();
-  } else if (page === "data-input") {
-    // Restore last active tab or default to csv-upload
-    const tabToShow = currentTab["data-input"] || "csv-upload";
-    showTab("data-input", tabToShow);
-  } else if (page === "investigation") {
-    // Restore last active tab or default to flagged-cases
-    const tabToShow = currentTab.investigation || "flagged-cases";
-    showTab("investigation", tabToShow);
-  }
-}
-
-function showTab(page, tabName) {
-  currentTab[page] = tabName;
-  const pageEl = document.getElementById(`page-${page}`);
-  if (!pageEl) return;
-
-  // Update tab buttons
-  pageEl.querySelectorAll(".tab-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tab === tabName);
-  });
-
-  // Update tab content
-  pageEl.querySelectorAll(".tab-content").forEach((content) => {
-    content.classList.toggle("active", content.id === `tab-${tabName}`);
-  });
-
-  // Load content if needed
-  if (page === "data-input") {
-    if (tabName === "csv-upload") {
-      // CSV upload is always ready
-    } else if (tabName === "upload-history") {
-      loadHistoryViewer();
-    } else if (tabName === "manual-entry") {
-      if (!simOptions) loadManualEntryOptions();
-    } else if (tabName === "simulator") {
-      if (!simOptions) loadSimulatorOptions();
-    }
-  } else if (page === "investigation") {
-    if (tabName === "flagged-cases") {
-      loadQueue();
-    } else if (tabName === "case-detail") {
-      // Case detail is loaded when clicking investigate
-    } else if (tabName === "explainability") {
-      loadExplainability();
-    } else if (tabName === "comparison") {
-      loadComparison();
-    }
-  }
-}
-
-function wireTabs() {
-  document.querySelectorAll(".tab-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const pageId = btn.closest(".page").id.replace("page-", "");
-      showTab(pageId, btn.dataset.tab);
-    });
-  });
->>>>>>> e0f9e7d7d7f10cdf6c809397c52228fd7d575ec2
 }
 
 function rerenderCurrentPageCharts() {
@@ -2230,7 +1956,6 @@ function rerenderCurrentPageCharts() {
   else if (currentPage === "simulator" && lastSimResult) renderSimCharts(lastSimResult);
 }
 
-<<<<<<< HEAD
 function wireDisclosureToggle(btnId, panelId, openLabel, closeLabel) {
   const btn = document.getElementById(btnId);
   const panel = document.getElementById(panelId);
@@ -2239,180 +1964,28 @@ function wireDisclosureToggle(btnId, panelId, openLabel, closeLabel) {
     const open = panel.style.display !== "none";
     panel.style.display = open ? "none" : "block";
     btn.textContent = open ? openLabel : closeLabel;
-=======
-function applyTheme(theme) {
-  document.documentElement.classList.toggle("light", theme === "light");
-  document.getElementById("theme-icon").innerHTML = theme === "light" ? Icons.moon : Icons.sun;
-  document.getElementById("theme-label").textContent = theme === "light" ? "Dark" : "Light";
-  localStorage.setItem("fraud-detection-theme", theme);
-  rerenderCurrentPageCharts();
-}
-
-function wireThemeToggle() {
-  let theme = localStorage.getItem("fraud-detection-theme") || localStorage.getItem("argus-theme") || "dark";
-  applyTheme(theme);
-  document.getElementById("theme-toggle").addEventListener("click", () => {
-    theme = theme === "dark" ? "light" : "dark";
-    applyTheme(theme);
->>>>>>> e0f9e7d7d7f10cdf6c809397c52228fd7d575ec2
   });
-}
-
-// ---------------------------------------------------------------------
-// upload history viewer
-// ---------------------------------------------------------------------
-function loadHistoryViewer() {
-  loadUploadHistory();
-
-  const emptyState = document.getElementById('history-empty-state');
-  const viewer = document.getElementById('history-viewer');
-
-  if (uploadHistory.length === 0) {
-    emptyState.style.display = 'block';
-    viewer.style.display = 'none';
-    return;
-  }
-
-  emptyState.style.display = 'none';
-  viewer.style.display = 'block';
-
-  // Ensure current index is valid
-  if (currentHistoryIndex >= uploadHistory.length) {
-    currentHistoryIndex = uploadHistory.length - 1;
-  }
-  if (currentHistoryIndex < 0) {
-    currentHistoryIndex = 0;
-  }
-
-  displayHistorySession(currentHistoryIndex);
-}
-
-function displayHistorySession(index) {
-  if (index < 0 || index >= uploadHistory.length) return;
-
-  currentHistoryIndex = index;
-  const session = uploadHistory[index];
-
-  // Update navigation
-  document.getElementById('history-position').textContent = `${index + 1} of ${uploadHistory.length}`;
-  document.getElementById('history-first').disabled = index === 0;
-  document.getElementById('history-prev').disabled = index === 0;
-  document.getElementById('history-next').disabled = index === uploadHistory.length - 1;
-  document.getElementById('history-last').disabled = index === uploadHistory.length - 1;
-
-  // Update session details
-  document.getElementById('history-filename').textContent = session.filename;
-  document.getElementById('history-date').textContent = new Date(session.uploadDate).toLocaleString();
-  document.getElementById('history-total').textContent = session.totalCount;
-  document.getElementById('history-fraud').textContent = session.fraudCount;
-  document.getElementById('history-fraud-rate').textContent =
-    `${((session.fraudCount / session.totalCount) * 100).toFixed(1)}%`;
-  document.getElementById('history-amount').textContent = `$${session.totalAmount.toFixed(2)}`;
-
-  // Display transactions
-  const tbody = document.querySelector('#table-history-transactions tbody');
-  tbody.innerHTML = session.transactions.map(tx => {
-    const isFlagged = tx.fraud_percentage >= 50;
-    return `<tr>
-      <td>${Fmt.escapeHtml(tx.transaction_id)}</td>
-      <td>${Fmt.escapeHtml(tx.account_id || 'N/A')}</td>
-      <td>${Fmt.escapeHtml(tx.date || 'N/A')}</td>
-      <td class="num tabular">${tx.amount ? Fmt.money(tx.amount) : 'N/A'}</td>
-      <td class="num tabular" style="color:${isFlagged ? 'var(--status-critical)' : 'var(--status-good)'}">
-        <strong>${tx.fraud_percentage.toFixed(1)}%</strong>
-      </td>
-      <td>${queueStatusBadge(tx.status || 'pending')}</td>
-    </tr>`;
-  }).join('');
-}
-
-function deleteCurrentHistory() {
-  if (uploadHistory.length === 0) return;
-
-  const session = uploadHistory[currentHistoryIndex];
-  if (!confirm(`Delete upload "${session.filename}"?\n\nThis will remove ${session.totalCount} transactions from history. This cannot be undone.`)) {
-    return;
-  }
-
-  // Remove from history
-  uploadHistory.splice(currentHistoryIndex, 1);
-  saveUploadHistory();
-
-  // Adjust current index
-  if (currentHistoryIndex >= uploadHistory.length && currentHistoryIndex > 0) {
-    currentHistoryIndex--;
-  }
-
-  // Reload viewer
-  loadHistoryViewer();
-  showToast('Upload history deleted');
-}
-
-function generateHistoryReport() {
-  if (uploadHistory.length === 0 || currentHistoryIndex < 0) return;
-
-  const session = uploadHistory[currentHistoryIndex];
-  const fraudulent = session.transactions.filter(tx => tx.fraud_percentage >= 50);
-
-  if (fraudulent.length === 0) {
-    showToast("No fraudulent transactions in this upload");
-    return;
-  }
-
-  showReportFormatDialog(fraudulent);
-}
-
-function wireHistoryControls() {
-  document.getElementById('history-first').addEventListener('click', () => {
-    displayHistorySession(0);
-  });
-
-  document.getElementById('history-prev').addEventListener('click', () => {
-    if (currentHistoryIndex > 0) {
-      displayHistorySession(currentHistoryIndex - 1);
-    }
-  });
-
-  document.getElementById('history-next').addEventListener('click', () => {
-    if (currentHistoryIndex < uploadHistory.length - 1) {
-      displayHistorySession(currentHistoryIndex + 1);
-    }
-  });
-
-  document.getElementById('history-last').addEventListener('click', () => {
-    displayHistorySession(uploadHistory.length - 1);
-  });
-
-  document.getElementById('history-delete-current').addEventListener('click', deleteCurrentHistory);
-  document.getElementById('history-generate-report').addEventListener('click', generateHistoryReport);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   loadUploadedTransactions(); // Load uploaded transactions from localStorage
   loadUploadHistory(); // Load upload history
   populateNav();
-<<<<<<< HEAD
   wireExplorerControls();
   wireQueueControls();
   wireSimulatorForm();
   wireUploadForm();
   wireHistoryControls();
   wireDrawer();
+  wireTopRiskTable();
+  wireKpiTileNav();
+  wireModelsSort();
+  wireCommandPalette();
+  wireShortcutsHelp();
+  wireGlobalShortcuts();
   wireDisclosureToggle("upload-format-toggle", "upload-format-panel", "Format details", "Hide format details");
   wireDisclosureToggle("about-toggle", "about-panel-detail", "Read the full methodology notes", "Hide the methodology notes");
   wireDisclosureToggle("simulator-note-toggle", "simulator-note-panel", "Why can't I enter a brand-new transaction?", "Hide explanation");
-=======
-  wireThemeToggle();
-  wireTabs();
-  wireQueueControls();
-  wireSimulatorForm();
-  wireUploadForm();
-  wireAccountAnalysisForm();
-  wireManualEntryForm();
-  wireCaseBackButton();
-  wireDrawer();
-  wireHistoryControls();
->>>>>>> e0f9e7d7d7f10cdf6c809397c52228fd7d575ec2
   showPage("overview");
   window.addEventListener("resize", Fmt.debounce(rerenderCurrentPageCharts, 200));
 });

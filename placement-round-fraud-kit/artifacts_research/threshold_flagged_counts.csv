@@ -1,11 +1,11 @@
 method,threshold_value,n_flagged,pct_flagged,score,score_max,score_min
-P95,0.8406,126,5.016,,,
-P97,0.86999,76,3.025,,,
-P99,0.914537,26,1.035,,,
-P99.5,0.944271,13,0.518,,,
-mean+3sigma,1.108844,0,0.0,ensemble_percentile_average,0.998766,0.086171
-Q3+1.5*IQR,1.136299,0,0.0,ensemble_percentile_average,0.998766,0.086171
+P95,0.841447,126,5.016,,,
+P97,0.863721,76,3.025,,,
+P99,0.916667,26,1.035,,,
+P99.5,0.955811,13,0.518,,,
+mean+3sigma,1.091092,0,0.0,ensemble_percentile_average,0.999403,0.101762
+Q3+1.5*IQR,1.118823,0,0.0,ensemble_percentile_average,0.999403,0.101762
 mean+3sigma,0.041691,25,0.995,"score_isolation_forest (unbounded, for context)",0.091861,-0.132482
 Q3+1.5*IQR,0.027498,43,1.712,"score_isolation_forest (unbounded, for context)",0.091861,-0.132482
-mean+3sigma,2.151551,17,0.677,"ensemble_weighted_average (unbounded, for context)",18.162787,-0.704821
-Q3+1.5*IQR,0.941323,87,3.463,"ensemble_weighted_average (unbounded, for context)",18.162787,-0.704821
+mean+3sigma,2.23786,16,0.637,"ensemble_weighted_average (unbounded, for context)",18.672594,-0.773235
+Q3+1.5*IQR,1.046791,63,2.508,"ensemble_weighted_average (unbounded, for context)",18.672594,-0.773235

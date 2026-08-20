@@ -1,10 +1,6 @@
 /* =========================================================================
    Bank Transaction Fraud & Anomaly Detection
-<<<<<<< HEAD
    Design tokens: single committed light theme, deep-indigo sidebar.
-=======
-   Design tokens (dark default, light via html.light), layout, components.
->>>>>>> e0f9e7d7d7f10cdf6c809397c52228fd7d575ec2
    ========================================================================= */
 
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
@@ -1197,3 +1193,303 @@ table.data-table {
   line-height: 1.6;
   border: 1px solid color-mix(in srgb, var(--series-1-blue) 20%, transparent);
 }
+
+/* =========================================================================
+   Interactivity pass: toast severity, confirm modal, command palette,
+   shortcuts help, KPI tile nav, row flash, priority pulse, bulk select,
+   chart entrance animation.
+   ========================================================================= */
+
+/* ---------------------------------------------------------------------
+   toast severity variants
+   --------------------------------------------------------------------- */
+.toast-good { border-left-color: var(--status-good); }
+.toast-warning { border-left-color: var(--status-warning); }
+.toast-critical { border-left-color: var(--status-critical); }
+
+/* ---------------------------------------------------------------------
+   reusable confirm modal
+   --------------------------------------------------------------------- */
+#modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-med);
+  z-index: 70;
+}
+#modal-backdrop.visible { opacity: 1; pointer-events: auto; }
+
+#confirm-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -46%) scale(0.97);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-med), transform var(--transition-med);
+  z-index: 71;
+  width: min(420px, 92vw);
+}
+#confirm-modal.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+.modal-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  box-shadow: 0 24px 60px -12px rgba(23,26,46,0.32), 0 2px 6px rgba(23,26,46,0.08);
+}
+.modal-card h3 {
+  margin: 0 0 8px;
+  font-size: 15.5px;
+  font-weight: 700;
+}
+.modal-card p, #confirm-modal-body {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+/* ---------------------------------------------------------------------
+   command palette (Ctrl/Cmd+K quick jump)
+   --------------------------------------------------------------------- */
+#palette-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-med);
+  z-index: 70;
+}
+#palette-backdrop.visible { opacity: 1; pointer-events: auto; }
+
+#command-palette {
+  position: fixed;
+  top: 14vh;
+  left: 50%;
+  transform: translateX(-50%) translateY(-6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-med), transform var(--transition-med);
+  z-index: 71;
+  width: min(560px, 92vw);
+  max-height: 68vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 60px -12px rgba(23,26,46,0.34), 0 2px 6px rgba(23,26,46,0.08);
+  overflow: hidden;
+}
+#command-palette.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+.palette-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.palette-input-wrap svg { color: var(--text-muted); flex-shrink: 0; }
+#palette-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  color: var(--text-primary);
+  outline: none;
+}
+.palette-esc-hint { flex-shrink: 0; }
+kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  background: var(--gridline);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.palette-results {
+  overflow-y: auto;
+  flex: 1;
+}
+.palette-result-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.palette-result-item:last-child { border-bottom: none; }
+.palette-result-item:hover, .palette-result-item.active { background: var(--surface-2); }
+.palette-result-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.palette-result-id { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; }
+.palette-result-sub { font-size: 11.5px; color: var(--text-muted); }
+.palette-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+.palette-footer {
+  display: flex;
+  gap: 16px;
+  padding: 9px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.palette-footer span { display: flex; align-items: center; gap: 5px; }
+
+/* ---------------------------------------------------------------------
+   keyboard shortcuts popup + launcher
+   --------------------------------------------------------------------- */
+#shortcuts-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-med);
+  z-index: 70;
+}
+#shortcuts-modal-backdrop.visible { opacity: 1; pointer-events: auto; }
+#shortcuts-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -46%) scale(0.97);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-med), transform var(--transition-med);
+  z-index: 71;
+  width: min(380px, 92vw);
+}
+#shortcuts-modal.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+.shortcuts-list { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 4px; }
+.shortcuts-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-secondary); }
+.shortcuts-row kbd { margin-right: 1px; }
+.shortcuts-row span { margin-left: 4px; }
+
+#shortcuts-fab {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(23,26,46,0.18);
+  transition: transform var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  z-index: 30;
+}
+#shortcuts-fab:hover { color: var(--accent-strong); border-color: var(--accent); transform: translateY(-2px); }
+
+/* ---------------------------------------------------------------------
+   clickable KPI tiles
+   --------------------------------------------------------------------- */
+.kpi-tile.clickable { cursor: pointer; }
+.kpi-tile.clickable:hover { border-color: var(--accent); box-shadow: 0 1px 2px rgba(23,26,46,0.04), 0 12px 28px -14px color-mix(in srgb, var(--accent) 40%, transparent); }
+.kpi-tile.clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------------------------------------------------------------------
+   priority-tier pulse (restrained, mirrors .status-pulse)
+   --------------------------------------------------------------------- */
+.badge-pulse-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--status-critical);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-critical) 55%, transparent);
+  animation: status-pulse-critical 2.4s ease-out infinite;
+  flex-shrink: 0;
+}
+@keyframes status-pulse-critical {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-critical) 45%, transparent); }
+  70% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--status-critical) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-critical) 0%, transparent); }
+}
+
+/* ---------------------------------------------------------------------
+   post-action row flash (confirms a queue action before the row reorders)
+   --------------------------------------------------------------------- */
+@keyframes row-flash-good { from { background: color-mix(in srgb, var(--status-good) 22%, transparent); } to { background: transparent; } }
+@keyframes row-flash-warning { from { background: color-mix(in srgb, var(--status-warning) 22%, transparent); } to { background: transparent; } }
+@keyframes row-flash-critical { from { background: color-mix(in srgb, var(--status-critical) 22%, transparent); } to { background: transparent; } }
+.row-flash-good { animation: row-flash-good 480ms ease; }
+.row-flash-warning { animation: row-flash-warning 480ms ease; }
+.row-flash-critical { animation: row-flash-critical 480ms ease; }
+
+/* ---------------------------------------------------------------------
+   explorer multi-select + bulk action bar
+   --------------------------------------------------------------------- */
+.checkbox-col { width: 34px; }
+.checkbox-col input[type="checkbox"], .row-select { accent-color: var(--accent); cursor: pointer; }
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  margin-bottom: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-2));
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  animation: card-rise 220ms ease;
+}
+.bulk-action-bar-actions { display: flex; gap: 8px; }
+
+/* ---------------------------------------------------------------------
+   chart entrance animation
+   --------------------------------------------------------------------- */
+.chart-bar-v {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: chart-bar-grow-v 380ms cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
+}
+.chart-bar-h {
+  transform-box: fill-box;
+  animation: chart-bar-grow-h 380ms cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
+}
+@keyframes chart-bar-grow-v {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+@keyframes chart-bar-grow-h {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.chart-line-draw { transition: stroke-dashoffset 420ms ease; }
+.chart-area-fade { transition: opacity 420ms ease; }

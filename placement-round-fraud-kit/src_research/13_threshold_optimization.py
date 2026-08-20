@@ -22,7 +22,7 @@ There is NO fraud label anywhere in this project. That means:
 
 A genuine, unforced methodological finding surfaces directly from running
 the statistical thresholds against the recommended score: because
-`ensemble_percentile_average` is a bounded average of 11 percentiles in
+`ensemble_percentile_average` is a bounded average of 8 percentiles in
 (0, 1), both mean+3sigma and Q3+1.5*IQR exceed the maximum possible value of
 the score, flagging zero transactions. This is reported plainly, along with
 a side-by-side comparison against an unbounded score (Isolation Forest's raw
@@ -173,7 +173,7 @@ def main():
             f"{stat_rows_recommended[0]['threshold_value']:.3f} and "
             f"{stat_rows_recommended[1]['threshold_value']:.3f} respectively), flagging ZERO "
             "transactions. This is a genuine, unforced methodological finding, not an error: "
-            "ensemble_percentile_average is a bounded average of 11 models' percentile ranks in "
+            "ensemble_percentile_average is a bounded average of 8 models' percentile ranks in "
             "(0,1), and averaging several roughly-independent percentiles compresses the tails "
             "(a CLT-like effect) far more than any single unbounded model's raw score would. "
             "Classic normal-distribution-derived statistical thresholds (3-sigma, Tukey's IQR "

@@ -160,7 +160,7 @@ def main():
             f"flags {stat_rows_recommended[1]['n_flagged']} on ensemble_percentile_average (max observed "
             f"{score.max():.4f}, thresholds computed at {stat_rows_recommended[0]['threshold_value']:.4f} "
             f"and {stat_rows_recommended[1]['threshold_value']:.4f} respectively). "
-            "ensemble_percentile_average is a bounded average of 11 models' percentile ranks in (0,1); "
+            "ensemble_percentile_average is a bounded average of 8 models' percentile ranks in (0,1); "
             "averaging several roughly-independent percentiles compresses the tails (a CLT-like effect) "
             "relative to any single unbounded model's raw score. Confirmed by applying the identical "
             "thresholds to two unbounded scores for context: Isolation Forest's raw score "

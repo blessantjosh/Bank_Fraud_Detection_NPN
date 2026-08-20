@@ -6,28 +6,30 @@ ID columns and any leakage-risk columns excluded -- verified below).
 
 Design decisions carried over from Phase 6/7 (see research/05_feature_selection_and_preprocessing.md):
   - RobustScaler, fit on the train split only, applied to the full dataset.
-  - The train/val split (2,009 / 503, random_state=42) is the *exact same*
-    split already used to train the Phase 7 autoencoder
-    (src_research/06_dim_reduction.py::run_autoencoder), reproduced here from
-    the same call (train_test_split(np.arange(len(df)), test_size=0.2,
-    random_state=42)) so that Model 9 (the reused autoencoder) and Models
-    1-8/10-12 are all evaluated against a consistent train/val partition --
-    cross-checked against autoencoder_reconstruction_errors.csv's `split`
-    column at the bottom of main().
-  - Feature set: the same 46 columns as artifacts_research/autoencoder_config.json
-    (i.e. both Location_enc and Location_Freq are present). Phase 6 recommends
+  - The train/val split (2,009 / 503, random_state=42) is the canonical
+    split reused by every downstream script in this phase (08-13):
+    train_test_split(np.arange(len(df)), test_size=0.2, random_state=42).
+  - Feature set: all 46 non-ID columns of features_v2.csv (i.e. both
+    Location_enc and Location_Freq are present). Phase 6 recommends
     Location_Freq over Location_enc for a *single* encoding of Location, but
-    since the already-trained autoencoder (Model 9) is fixed to this exact
-    46-column schema, all 12 models are scored on the identical feature
-    matrix for apples-to-apples comparison (Spearman / Jaccard across
-    models only mean something if every model saw the same columns).
-    Redundancy risk from keeping both encodings is checked directly:
-    corr(Location_enc, Location_Freq) = 0.0029 -- negligible, so this is not
-    a meaningful double-count of the same information.
+    every model in this phase is scored on the identical feature matrix for
+    apples-to-apples comparison (Spearman / Jaccard across models only mean
+    something if every model saw the same columns). Redundancy risk from
+    keeping both encodings is checked directly: corr(Location_enc,
+    Location_Freq) = 0.0029 -- negligible, so this is not a meaningful
+    double-count of the same information.
   - No leakage columns: features_v2.csv has no vote_count / risk_tier /
     is_fraud columns (those live only in the *separate* artifacts/labeled.csv
     from v1's supervised side-experiment) -- verified explicitly below, not
     assumed.
+
+Note: this phase previously (pre deep-learning removal) also included an
+Autoencoder, VAE, and LSTM Autoencoder (formerly Models 9-11) plus a Hybrid
+Ensemble (formerly Model 12, IF + LOF + Autoencoder majority vote). Those
+three deep-learning models were removed; the Hybrid Ensemble (now Model 9,
+built in 08_models_deep.py) was redefined to IF + LOF + GMM majority vote.
+This pipeline now has 9 models total: the 8 classical detectors built below
+plus the Model 9 Hybrid Ensemble.
 
 Anomaly-score sign convention used everywhere in this file (and carried into
 08_models_deep.py): every score_<model> column is oriented so that HIGHER =
@@ -88,11 +90,8 @@ def load_and_split():
     leakage_cols = [c for c in ("vote_count", "risk_tier", "is_fraud") if c in df.columns]
     assert not leakage_cols, f"Leakage-risk columns found in features_v2.csv: {leakage_cols}"
 
-    with open(os.path.join(ARTIFACTS_RESEARCH_DIR, "autoencoder_config.json")) as f:
-        ae_config = json.load(f)
-    feature_cols = ae_config["feature_cols"]
-    assert all(c in df.columns for c in feature_cols)
-    print(f"Feature matrix: {len(feature_cols)} columns (matches the trained autoencoder's schema)")
+    feature_cols = [c for c in df.columns if c not in ID_COLS]
+    print(f"Feature matrix: {len(feature_cols)} columns")
 
     X = df[feature_cols].astype(float).values
     idx_train, idx_val = train_test_split(np.arange(len(df)), test_size=0.2, random_state=RANDOM_STATE)
@@ -103,13 +102,6 @@ def load_and_split():
     X_all = scaler.transform(X)
 
     joblib.dump(scaler, os.path.join(MODELS_DIR, "shared_robust_scaler.pkl"))
-
-    # cross-check against the autoencoder's own recorded split
-    ae_errs = pd.read_csv(os.path.join(ARTIFACTS_RESEARCH_DIR, "autoencoder_reconstruction_errors.csv"))
-    ae_train_mask = (ae_errs["split"] == "train").values
-    my_train_mask = np.isin(np.arange(len(df)), idx_train)
-    match = (ae_train_mask == my_train_mask).all()
-    print(f"Split reproduction check vs autoencoder_reconstruction_errors.csv: {'MATCH' if match else 'MISMATCH'}")
 
     return df, feature_cols, X, X_train, X_val, X_all, idx_train, idx_val, scaler
 

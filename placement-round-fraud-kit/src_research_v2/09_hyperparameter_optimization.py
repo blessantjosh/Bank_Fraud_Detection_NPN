@@ -14,11 +14,11 @@ left implicit:
   - Gaussian Mixture Model: objective = BIC on the training split, minimize
     -- directly comparable to the grid already computed in
     06_models_classical.py's Model 8.
-  - VAE: objective = validation-split reconstruction MSE, minimize, using a
-    reduced 60-epoch training budget per trial (the deployed Model 10
-    artifact, artifacts_research_v2/vae.pt, still uses the original fixed
-    200-epoch/beta=0.1/latent=3 config from 07_models_deep.py -- this script
-    reports what a search would find, it does not overwrite that artifact).
+
+No deep-learning model is tuned here (removed): the VAE hyperparameter
+search block was dropped along with the VAE model itself. Only Isolation
+Forest and GMM -- the two classical models this pipeline actually tunes --
+remain.
 
 Bayesian (Optuna, TPE) vs. exhaustive-grid vs. random-search baseline is run
 for Isolation Forest since that 3-hyperparameter space is small enough to
@@ -28,7 +28,7 @@ against.
 Outputs: artifacts_research_v2/hyperparameter_optimization_results.json,
 artifacts_research_v2/iforest_grid_search_v2.csv.
 Plots: research_v2/plots/{iforest_optuna_vs_baseline_v2.png,
-gmm_optuna_search_v2.png, vae_optuna_search_v2.png}.
+gmm_optuna_search_v2.png}.
 """
 import json
 import os
@@ -52,7 +52,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config_research_v2 import (
     ARTIFACTS_V2_DIR, FEATURE_COLS_V2, MODELS_V2_DIR, PLOTS_V2_DIR, RANDOM_STATE, load_features_v2,
 )
-from vae_utils import train_vae, vae_reconstruction_errors
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -288,67 +287,6 @@ def run_gmm_search(X_train):
     return result
 
 
-# --------------------------------------------------------------------- VAE search
-def vae_objective(trial, X_train, X_val):
-    latent_dim = trial.suggest_categorical("latent_dim", [2, 3, 4])
-    hidden1 = trial.suggest_categorical("hidden1", [4, 8, 16])
-    hidden2 = max(2, hidden1 // 2)
-    beta = trial.suggest_float("beta", 0.01, 1.0, log=True)
-    lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
-    model, history = train_vae(X_train, X_val, hidden1=hidden1, hidden2=hidden2, latent_dim=latent_dim,
-                                epochs=60, lr=lr, batch_size=64, beta=beta,
-                                random_state=RANDOM_STATE, verbose=False)
-    val_mse, _ = vae_reconstruction_errors(model, X_val)
-    return float(val_mse.mean())
-
-
-def run_vae_search(X_train, X_val):
-    sampler = optuna.samplers.TPESampler(seed=RANDOM_STATE)
-    study = optuna.create_study(direction="minimize", sampler=sampler)
-    n_trials = 20
-    t0 = time.time()
-    study.optimize(lambda trial: vae_objective(trial, X_train, X_val), n_trials=n_trials)
-    elapsed = time.time() - t0
-
-    with open(os.path.join(ARTIFACTS_V2_DIR, "vae_config.json")) as f:
-        deployed_vae = json.load(f)
-
-    result = {
-        "objective": "Validation-split reconstruction MSE (minimize), 60-epoch search budget per trial "
-                     "(vs. 200 epochs for the deployed Model 10 artifact -- reduced budget for tractability "
-                     "across 20 trials)",
-        "search_space": {"latent_dim": "[2, 3, 4]", "hidden1": "[4, 8, 16]", "beta": "0.01-1.0 (log)",
-                         "lr": "1e-4 to 1e-2 (log)"},
-        "n_trials": n_trials, "elapsed_sec": round(elapsed, 2),
-        "best_params": study.best_params,
-        "best_val_mse_60_epochs": round(float(study.best_value), 6),
-        "deployed_model10_val_mse_200_epochs": deployed_vae["val_recon_mse_mean"],
-        "deployed_model10_config": {"latent_dim": 3, "hidden1": 8, "beta": deployed_vae["beta_kl_weight"]},
-    }
-    result["verdict"] = (
-        f"Best config found by the search (60-epoch budget): {study.best_params}, val MSE "
-        f"{study.best_value:.4f}. The deployed Model 10 (latent_dim=3, hidden1=8, beta=0.1, 200 "
-        f"epochs) reaches val MSE {deployed_vae['val_recon_mse_mean']:.4f} -- these numbers are not "
-        "directly comparable (different epoch budgets), so this is reported as 'what the search "
-        "found under a search-appropriate budget'."
-    )
-    print("\n=== VAE (v2): Optuna Search ===")
-    print(json.dumps(result, indent=2, default=float))
-
-    trials_df = study.trials_dataframe()
-    fig, ax = plt.subplots(figsize=(8, 5.5))
-    sc = ax.scatter(trials_df["params_beta"], trials_df["value"], c=trials_df["params_latent_dim"],
-                     cmap="viridis", s=50, alpha=0.8)
-    ax.set_xscale("log")
-    cbar = fig.colorbar(sc, ax=ax); cbar.set_label("latent_dim")
-    ax.set_xlabel("beta (KL weight, log scale)")
-    ax.set_ylabel("Validation reconstruction MSE (60-epoch budget)")
-    ax.set_title("VAE (v2, 18 features) Optuna Search -- beta vs. Validation Reconstruction MSE")
-    savefig(fig, "vae_optuna_search_v2.png")
-
-    return result
-
-
 def main():
     feature_cols, X_train, X_val = load_common()
 
@@ -358,11 +296,8 @@ def main():
     print("\n=== Phase 9 (v2).2: GMM hyperparameter search ===")
     gmm_result = run_gmm_search(X_train)
 
-    print("\n=== Phase 9 (v2).3: VAE hyperparameter search ===")
-    vae_result = run_vae_search(X_train, X_val)
-
     with open(os.path.join(ARTIFACTS_V2_DIR, "hyperparameter_optimization_results.json"), "w") as f:
-        json.dump({"isolation_forest": if_result, "gmm": gmm_result, "vae": vae_result}, f, indent=2, default=float)
+        json.dump({"isolation_forest": if_result, "gmm": gmm_result}, f, indent=2, default=float)
     print(f"\nSaved: {os.path.join(ARTIFACTS_V2_DIR, 'hyperparameter_optimization_results.json')}")
 
 

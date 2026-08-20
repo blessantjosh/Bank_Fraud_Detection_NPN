@@ -1,17 +1,17 @@
 {
   "recommended_score": "ensemble_percentile_average (Phase 12 v2 recommendation)",
   "score_distribution": {
-    "mean": 0.5007,
-    "std": 0.225,
-    "min": 0.0458,
-    "max": 0.9951,
-    "q1": 0.3115,
-    "q3": 0.6802
+    "mean": 0.5,
+    "std": 0.2242,
+    "min": 0.0576,
+    "max": 0.9967,
+    "q1": 0.3163,
+    "q3": 0.6746
   },
   "percentile_thresholds": [
     {
       "method": "P95",
-      "threshold_value": 0.867124,
+      "threshold_value": 0.885205,
       "n_flagged": 126,
       "pct_flagged": 5.016,
       "flagged_per_day_this_sample": 0.3452,
@@ -19,7 +19,7 @@
     },
     {
       "method": "P97",
-      "threshold_value": 0.910861,
+      "threshold_value": 0.929548,
       "n_flagged": 76,
       "pct_flagged": 3.025,
       "flagged_per_day_this_sample": 0.2082,
@@ -27,7 +27,7 @@
     },
     {
       "method": "P99",
-      "threshold_value": 0.951023,
+      "threshold_value": 0.962685,
       "n_flagged": 26,
       "pct_flagged": 1.035,
       "flagged_per_day_this_sample": 0.0712,
@@ -35,7 +35,7 @@
     },
     {
       "method": "P99.5",
-      "threshold_value": 0.964634,
+      "threshold_value": 0.979178,
       "n_flagged": 13,
       "pct_flagged": 0.518,
       "flagged_per_day_this_sample": 0.0356,
@@ -46,20 +46,20 @@
     {
       "method": "mean+3sigma",
       "score": "ensemble_percentile_average",
-      "threshold_value": 1.175665,
+      "threshold_value": 1.172453,
       "n_flagged": 0,
       "pct_flagged": 0.0,
-      "score_max": 0.995118,
-      "score_min": 0.045842
+      "score_max": 0.996716,
+      "score_min": 0.057574
     },
     {
       "method": "Q3+1.5*IQR",
       "score": "ensemble_percentile_average",
-      "threshold_value": 1.233169,
+      "threshold_value": 1.211982,
       "n_flagged": 0,
       "pct_flagged": 0.0,
-      "score_max": 0.995118,
-      "score_min": 0.045842
+      "score_max": 0.996716,
+      "score_min": 0.057574
     }
   ],
   "statistical_thresholds_context_unbounded_scores": [
@@ -84,23 +84,23 @@
     {
       "method": "mean+3sigma",
       "score": "ensemble_weighted_average (unbounded, for context)",
-      "threshold_value": 2.193667,
-      "n_flagged": 29,
-      "pct_flagged": 1.154,
-      "score_max": 7.43423,
-      "score_min": -1.24607
+      "threshold_value": 2.271946,
+      "n_flagged": 32,
+      "pct_flagged": 1.274,
+      "score_max": 7.310684,
+      "score_min": -1.265361
     },
     {
       "method": "Q3+1.5*IQR",
       "score": "ensemble_weighted_average (unbounded, for context)",
-      "threshold_value": 1.546218,
-      "n_flagged": 79,
-      "pct_flagged": 3.145,
-      "score_max": 7.43423,
-      "score_min": -1.24607
+      "threshold_value": 1.544856,
+      "n_flagged": 75,
+      "pct_flagged": 2.986,
+      "score_max": 7.310684,
+      "score_min": -1.265361
     }
   ],
-  "statistical_threshold_finding": "mean+3sigma flags 0 transactions and Q3+1.5*IQR flags 0 on ensemble_percentile_average (max observed 0.9951, thresholds computed at 1.1757 and 1.2332 respectively). ensemble_percentile_average is a bounded average of 11 models' percentile ranks in (0,1); averaging several roughly-independent percentiles compresses the tails (a CLT-like effect) relative to any single unbounded model's raw score. Confirmed by applying the identical thresholds to two unbounded scores for context: Isolation Forest's raw score (mean+3sigma flags 16, Q3+1.5*IQR flags 25) and the Phase 12 (v2) Weighted-Average ensemble (mean+3sigma flags 29, Q3+1.5*IQR flags 79).",
+  "statistical_threshold_finding": "mean+3sigma flags 0 transactions and Q3+1.5*IQR flags 0 on ensemble_percentile_average (max observed 0.9967, thresholds computed at 1.1725 and 1.2120 respectively). ensemble_percentile_average is a bounded average of 8 models' percentile ranks in (0,1); averaging several roughly-independent percentiles compresses the tails (a CLT-like effect) relative to any single unbounded model's raw score. Confirmed by applying the identical thresholds to two unbounded scores for context: Isolation Forest's raw score (mean+3sigma flags 16, Q3+1.5*IQR flags 25) and the Phase 12 (v2) Weighted-Average ensemble (mean+3sigma flags 32, Q3+1.5*IQR flags 75).",
   "business_impact_caveat": "This dataset has no fraud label, so a true cost-minimizing threshold (balancing illustrative FP cost $5 against illustrative FN cost $250, v1's own stated illustrative figures -- not real bank numbers either) CANNOT be computed here, because that requires knowing which transactions are actually fraud, both among the flagged (to count true positives) and among the unflagged (to count false negatives). What CAN be shown honestly: (a) how many transactions land above each threshold, (b) the implied review-team operational load, and (c) an UPPER-BOUND illustrative review cost assuming every flagged transaction is a false positive (n_flagged x $5) -- not a total-cost estimate, only a worst-case review-labor cost ceiling.",
   "operational_load_caveat": "This dataset covers 365 days and 2512 transactions total across 495 accounts -- an average of 6.88 transactions/day. This is a small research sample, not representative of a real bank's daily transaction volume; the 'flagged per day' figures below describe THIS SAMPLE's scale only, not a production volume estimate."
 }

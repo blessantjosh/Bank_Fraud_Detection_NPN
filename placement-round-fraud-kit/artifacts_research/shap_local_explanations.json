@@ -2,7 +2,6 @@
   "TX000177": {
     "AccountID": "AC00363",
     "isolation_forest": {
-      "score": null,
       "top_contributors": [
         {
           "feature": "Amount_to_RollingMean_Ratio",
@@ -53,64 +52,11 @@
           "direction": "pushes score UP (more anomalous)"
         }
       ]
-    },
-    "autoencoder": {
-      "top_contributors": [
-        {
-          "feature": "Amount_ZScore_Account",
-          "shap_value": 1.29774,
-          "raw_feature_value": 92.5575,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "Amount_vs_AccountAvg",
-          "shap_value": 0.80774,
-          "raw_feature_value": 117.8962,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "Amount_to_RollingMean_Ratio",
-          "shap_value": 0.34596,
-          "raw_feature_value": 118.8962,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "Amount_to_Balance_Ratio",
-          "shap_value": -0.34202,
-          "raw_feature_value": 0.5608,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "Expanding_MinAmount",
-          "shap_value": -0.11716,
-          "raw_feature_value": 11.46,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "SpendCV_Account",
-          "shap_value": -0.073,
-          "raw_feature_value": 0.0,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "TransactionAmount",
-          "shap_value": 0.05023,
-          "raw_feature_value": 1362.55,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "Expanding_MaxAmount",
-          "shap_value": -0.04859,
-          "raw_feature_value": 11.46,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        }
-      ]
     }
   },
   "TX001354": {
     "AccountID": "AC00312",
     "isolation_forest": {
-      "score": null,
       "top_contributors": [
         {
           "feature": "Amount_to_RollingMean_Ratio",
@@ -161,272 +107,114 @@
           "direction": "pushes score UP (more anomalous)"
         }
       ]
-    },
-    "autoencoder": {
+    }
+  },
+  "TX002181": {
+    "AccountID": "AC00084",
+    "isolation_forest": {
       "top_contributors": [
         {
-          "feature": "Amount_ZScore_Account",
-          "shap_value": 0.85095,
-          "raw_feature_value": 102.8025,
-          "direction": "pushes reconstruction error UP (more anomalous)"
+          "feature": "Amount_to_RollingMean_Ratio",
+          "shap_value": 1.10127,
+          "raw_feature_value": 144.9389,
+          "direction": "pushes score UP (more anomalous)"
+        },
+        {
+          "feature": "TimeSinceLastTxn",
+          "shap_value": 0.80285,
+          "raw_feature_value": 6649.2833,
+          "direction": "pushes score UP (more anomalous)"
         },
         {
           "feature": "Amount_vs_AccountAvg",
-          "shap_value": 0.81609,
-          "raw_feature_value": 149.0208,
-          "direction": "pushes reconstruction error UP (more anomalous)"
+          "shap_value": 0.76426,
+          "raw_feature_value": 143.9389,
+          "direction": "pushes score UP (more anomalous)"
         },
         {
-          "feature": "Amount_to_RollingMean_Ratio",
-          "shap_value": 0.56369,
-          "raw_feature_value": 150.0208,
-          "direction": "pushes reconstruction error UP (more anomalous)"
+          "feature": "Amount_ZScore_Account",
+          "shap_value": 0.32024,
+          "raw_feature_value": 33.9206,
+          "direction": "pushes score UP (more anomalous)"
         },
         {
-          "feature": "Amount_to_Balance_Ratio",
-          "shap_value": -0.40278,
-          "raw_feature_value": 0.7333,
-          "direction": "pushes reconstruction error DOWN (more normal)"
+          "feature": "CustomerOccupation_Retired",
+          "shap_value": 0.28997,
+          "raw_feature_value": 1.0,
+          "direction": "pushes score UP (more anomalous)"
         },
         {
-          "feature": "Expanding_MinAmount",
-          "shap_value": -0.10604,
-          "raw_feature_value": 10.07,
-          "direction": "pushes reconstruction error DOWN (more normal)"
+          "feature": "IPSharedAccounts_Prior",
+          "shap_value": 0.24225,
+          "raw_feature_value": 8.0,
+          "direction": "pushes score UP (more anomalous)"
         },
         {
-          "feature": "SpendCV_Account",
-          "shap_value": -0.05712,
-          "raw_feature_value": 0.0,
-          "direction": "pushes reconstruction error DOWN (more normal)"
+          "feature": "IPTxnCount",
+          "shap_value": 0.24005,
+          "raw_feature_value": 9.0,
+          "direction": "pushes score UP (more anomalous)"
         },
         {
-          "feature": "Expanding_MaxAmount",
-          "shap_value": -0.05518,
-          "raw_feature_value": 10.07,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "Expanding_MeanAmount",
-          "shap_value": -0.05331,
-          "raw_feature_value": 10.07,
-          "direction": "pushes reconstruction error DOWN (more normal)"
+          "feature": "Hour_cos",
+          "shap_value": 0.23452,
+          "raw_feature_value": 0.1779,
+          "direction": "pushes score UP (more anomalous)"
         }
       ]
     }
   },
-  "TX000275": {
-    "AccountID": "AC00454",
+  "TX001894": {
+    "AccountID": "AC00378",
     "isolation_forest": {
-      "score": null,
       "top_contributors": [
         {
-          "feature": "LoginAttempts",
-          "shap_value": 0.71244,
-          "raw_feature_value": 5.0,
-          "direction": "pushes score UP (more anomalous)"
-        },
-        {
-          "feature": "ElevatedLoginFlag",
-          "shap_value": 0.67749,
-          "raw_feature_value": 1.0,
-          "direction": "pushes score UP (more anomalous)"
-        },
-        {
-          "feature": "Amount_to_Balance_Ratio",
-          "shap_value": 0.66532,
-          "raw_feature_value": 3.634,
-          "direction": "pushes score UP (more anomalous)"
-        },
-        {
-          "feature": "ATM_Credit_InteractionFlag",
-          "shap_value": 0.64941,
-          "raw_feature_value": 1.0,
-          "direction": "pushes score UP (more anomalous)"
-        },
-        {
-          "feature": "TransactionAmount",
-          "shap_value": 0.47398,
-          "raw_feature_value": 1176.28,
+          "feature": "DeviceNoveltyFlag",
+          "shap_value": 0.52667,
+          "raw_feature_value": 0.0,
           "direction": "pushes score UP (more anomalous)"
         },
         {
           "feature": "TransactionType_Debit",
-          "shap_value": 0.37042,
+          "shap_value": 0.35966,
           "raw_feature_value": 0.0,
           "direction": "pushes score UP (more anomalous)"
         },
         {
           "feature": "Amount_minus_ExpandingMean",
-          "shap_value": 0.35828,
-          "raw_feature_value": 909.4633,
+          "shap_value": 0.26164,
+          "raw_feature_value": -600.105,
           "direction": "pushes score UP (more anomalous)"
         },
         {
-          "feature": "Amount_vs_TypeAvg",
-          "shap_value": 0.30137,
-          "raw_feature_value": 2.8378,
-          "direction": "pushes score UP (more anomalous)"
-        }
-      ]
-    },
-    "autoencoder": {
-      "top_contributors": [
-        {
-          "feature": "Amount_to_Balance_Ratio",
-          "shap_value": 0.48453,
-          "raw_feature_value": 3.634,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "LoginAttempts",
-          "shap_value": 0.31401,
-          "raw_feature_value": 5.0,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "Amount_ZScore_Account",
-          "shap_value": -0.13113,
-          "raw_feature_value": 6.0997,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "Expanding_MinAmount",
-          "shap_value": -0.05609,
-          "raw_feature_value": 124.84,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "Amount_vs_AccountAvg",
-          "shap_value": -0.05428,
-          "raw_feature_value": 3.4086,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "Amount_to_RollingMean_Ratio",
-          "shap_value": -0.04397,
-          "raw_feature_value": 4.4086,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "AccountBalance",
-          "shap_value": -0.03672,
-          "raw_feature_value": 323.69,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "Expanding_MedianAmount",
-          "shap_value": -0.02589,
-          "raw_feature_value": 253.47,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        }
-      ]
-    }
-  },
-  "TX000566": {
-    "AccountID": "AC00086",
-    "isolation_forest": {
-      "score": null,
-      "top_contributors": [
-        {
-          "feature": "LocationNoveltyFlag",
-          "shap_value": 0.95989,
-          "raw_feature_value": 0.0,
+          "feature": "Rolling3_StdAmount",
+          "shap_value": 0.25468,
+          "raw_feature_value": 533.2646,
           "direction": "pushes score UP (more anomalous)"
         },
         {
-          "feature": "Velocity_1D_Count",
-          "shap_value": 0.71112,
+          "feature": "CustomerOccupation_Student",
+          "shap_value": 0.22916,
           "raw_feature_value": 1.0,
           "direction": "pushes score UP (more anomalous)"
         },
         {
-          "feature": "Velocity_7D_Count",
-          "shap_value": 0.39182,
-          "raw_feature_value": 1.0,
+          "feature": "Expanding_StdAmount",
+          "shap_value": 0.22416,
+          "raw_feature_value": 533.2646,
           "direction": "pushes score UP (more anomalous)"
         },
         {
           "feature": "Expanding_MeanAmount",
-          "shap_value": 0.37509,
-          "raw_feature_value": 738.88,
+          "shap_value": 0.19126,
+          "raw_feature_value": 604.685,
           "direction": "pushes score UP (more anomalous)"
         },
-        {
-          "feature": "Amount_minus_ExpandingMean",
-          "shap_value": 0.34934,
-          "raw_feature_value": -709.5,
-          "direction": "pushes score UP (more anomalous)"
-        },
-        {
-          "feature": "Amount_minus_ExpandingMedian",
-          "shap_value": 0.28189,
-          "raw_feature_value": -709.5,
-          "direction": "pushes score UP (more anomalous)"
-        },
-        {
-          "feature": "TransactionType_Debit",
-          "shap_value": 0.27898,
-          "raw_feature_value": 0.0,
-          "direction": "pushes score UP (more anomalous)"
-        },
-        {
-          "feature": "IPTxnCount",
-          "shap_value": 0.21176,
-          "raw_feature_value": 9.0,
-          "direction": "pushes score UP (more anomalous)"
-        }
-      ]
-    },
-    "autoencoder": {
-      "top_contributors": [
         {
           "feature": "Expanding_MedianAmount",
-          "shap_value": 0.09302,
-          "raw_feature_value": 738.88,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "Expanding_MeanAmount",
-          "shap_value": 0.06962,
-          "raw_feature_value": 738.88,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "IPTxnCount",
-          "shap_value": 0.05427,
-          "raw_feature_value": 9.0,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "Amount_vs_AccountAvg",
-          "shap_value": -0.04454,
-          "raw_feature_value": -0.9602,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "Expanding_MinAmount",
-          "shap_value": 0.0433,
-          "raw_feature_value": 340.13,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "Amount_to_RollingMean_Ratio",
-          "shap_value": -0.03927,
-          "raw_feature_value": 0.0398,
-          "direction": "pushes reconstruction error DOWN (more normal)"
-        },
-        {
-          "feature": "Amount_minus_ExpandingMedian",
-          "shap_value": 0.0375,
-          "raw_feature_value": -709.5,
-          "direction": "pushes reconstruction error UP (more anomalous)"
-        },
-        {
-          "feature": "Rolling3_MeanAmount",
-          "shap_value": 0.03401,
-          "raw_feature_value": 738.88,
-          "direction": "pushes reconstruction error UP (more anomalous)"
+          "shap_value": 0.14738,
+          "raw_feature_value": 604.685,
+          "direction": "pushes score UP (more anomalous)"
         }
       ]
     }

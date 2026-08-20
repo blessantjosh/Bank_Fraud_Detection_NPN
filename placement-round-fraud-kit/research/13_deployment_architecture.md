@@ -34,11 +34,11 @@ This is the deployment design for **this** system — every stage below names th
               ▼                                    ▼
    ┌──────────────────────┐          ┌───────────────────────────────┐
    │  2' FEATURE          │          │  3  MODEL SCORING             │
-   │     ENGINEERING      │─────────▶│     9 out-of-sample models    │
-   │     (transform)      │  46 cols │     + shared_robust_scaler    │
-   │  batch: 04_fe.py     │  scaled  │     sign-normalised so        │
-   │  live:  fe_utils     │          │     higher = more anomalous   │
-   │         ::transform_new (GAP §3)│  → score_<model> × 9          │
+   │     ENGINEERING      │─────────▶│     6 out-of-sample classical │
+   │     (transform)      │  46 cols │     models + Hybrid Ensemble  │
+   │  batch: 04_fe.py     │  scaled  │     (IF+LOF+GMM), sign-       │
+   │  live:  fe_utils     │          │     normalised so higher =    │
+   │         ::transform_new (GAP §3)│     more anomalous → score_<model> × 6 + vote │
    └──────────────────────┘          └───────────────────────────────┘
                                                    │
                                                    ▼
@@ -67,9 +67,10 @@ This is the deployment design for **this** system — every stage below names th
         ┌────────────────────────────┐                 ┌──────────────────────────┐
         │  EXPLANATION LAYER         │                 │  6  INVESTIGATION        │
         │  shap_isolation_forest.csv │────────────────▶│     DASHBOARD — "Bank Transaction Fraud & Anomaly Detection"  │
-        │  shap_autoencoder.csv      │  per-txn attrib │  dashboard/backend/      │
-        │  (two families, both shown)│                 │    api_server.py         │
-        └────────────────────────────┘                 │  FastAPI + static JS     │
+        │  (sole SHAP family; no     │  per-txn attrib │  dashboard/backend/      │
+        │   remaining model here     │                 │    api_server.py         │
+        │   is SHAP-compatible)      │                 │  FastAPI + static JS     │
+        └────────────────────────────┘                 │                          │
                                                        │  6 pages, offline        │
                                                        └──────────────────────────┘
                                                                     │
@@ -102,7 +103,7 @@ Two ingestion rules are already established by the analysis and must be enforced
 
 ## 3. Stage 2 — Feature Engineering
 
-**46 features, one ordered schema.** The authoritative list is `feature_cols` in `artifacts_research/autoencoder_config.json` — 46 names in a fixed order. That ordering is a binding contract between this stage and every model artifact; the models were fit on columns in that order and will silently produce garbage if handed the same 46 columns permuted. It must be versioned with the models (§6), not treated as documentation.
+**46 features, one ordered schema.** The authoritative list is the non-ID columns of `artifacts_research/features_v2.csv`, in the order `07_models_classical.py::load_and_split()` reads them (`[c for c in df.columns if c not in ("TransactionID", "AccountID")]`) — 46 names in a fixed order. That ordering is a binding contract between this stage and every model artifact; the models were fit on columns in that order and will silently produce garbage if handed the same 46 columns permuted. It must be versioned with the models (§6), not treated as documentation.
 
 ### 3.1 Batch path — implemented and verified
 
@@ -119,7 +120,7 @@ Two ingestion rules are already established by the analysis and must be enforced
 
 One implementation detail matters enough in production to name: `Amount_ZScore_Account` divides by `Expanding_StdAmount` floored at **5% of the dataset-wide `TransactionAmount` standard deviation ($291.95 → a $14.60 floor)**, not at an arbitrary epsilon (`04_feature_engineering.py:119`). Phase 6 §7.3 documents why — an earlier build used a near-zero epsilon and accounts with 2–3 near-identical prior transactions drove that one feature into the hundreds of millions, swamping every other feature's contribution to the autoencoder's loss. **The floor is a constant derived from the training data**, which makes it a versioned model parameter and a monitoring target (Phase 16 §2.4), not a hard-coded number.
 
-Scaling: `RobustScaler`, fit on the training split only, persisted as `artifacts_research/models/shared_robust_scaler.pkl` and — for the autoencoder specifically — `artifacts_research/autoencoder_scaler.pkl`. Phase 6 §6.2 chose it over `StandardScaler`/`MinMaxScaler`/`QuantileTransformer` on measured grounds: its IQR denominator moved 2.40% on average when the top 1% of values were trimmed, against 13.94% for the standard deviation and 30.42% for the range. For a system whose entire purpose is to retain and score outliers, the scaler's own baseline must not be dictated by them.
+Scaling: `RobustScaler`, fit on the training split only, persisted as `artifacts_research/models/shared_robust_scaler.pkl` and shared by all 9 models — there is no per-model scaler anymore now that the Autoencoder (which previously kept its own copy, `autoencoder_scaler.pkl`) has been removed from this pipeline. Phase 6 §6.2 chose it over `StandardScaler`/`MinMaxScaler`/`QuantileTransformer` on measured grounds: its IQR denominator moved 2.40% on average when the top 1% of values were trimmed, against 13.94% for the standard deviation and 30.42% for the range. For a system whose entire purpose is to retain and score outliers, the scaler's own baseline must not be dictated by them.
 
 ### 3.2 Real-time path — partially implemented, and this is the largest gap in the architecture
 
@@ -144,14 +145,12 @@ Every one of these is a bounded, incrementally-updatable statistic except the ru
 
 ## 4. Stage 3 — Model Scoring
 
-**Model set.** Per Phase 14 §3/§4, the deployed scoring set is the models that can score a transaction they were not fit on: Isolation Forest, LOF (`novelty=True`), One-Class SVM, Elliptic Envelope, K-Means, GMM, Autoencoder, VAE, LSTM-AE. **DBSCAN and HDBSCAN are excluded from the online path** because they have no out-of-sample `.predict` (Phase 8 §0) — they can only participate in a full-refit batch run.
+**Model set.** This pipeline now has 9 models total: 8 classical detectors (`07_models_classical.py`) plus the Model 9 Hybrid Ensemble (`08_models_deep.py`, majority vote of Isolation Forest + LOF + GMM — redefined from its earlier IF + LOF + Autoencoder form after the three deep-learning models, Autoencoder/VAE/LSTM-AE, were removed from this pipeline; see the project decision log). The deployed **online** scoring set is the models that can score a transaction they were not fit on: Isolation Forest, LOF (`novelty=True`), One-Class SVM, Elliptic Envelope, K-Means, GMM — plus the Hybrid Ensemble, computable online because all three of its inputs (IF, LOF, GMM) are themselves online-capable. **DBSCAN and HDBSCAN are excluded from the online path** because they have no out-of-sample `.predict` (Phase 8 §0) — they can only participate in a full-refit batch run, and by extension so can any ensemble score that includes them.
 
 | Artifact | Loaded by |
 |---|---|
 | `artifacts_research/models/{isolation_forest,lof,ocsvm,elliptic_envelope,kmeans,gmm}.pkl` | `joblib.load` |
-| `artifacts_research/autoencoder.pt` + `autoencoder_scaler.pkl` + `autoencoder_config.json` | `src_research/autoencoder_utils.py::load_autoencoder()`, scored by `reconstruction_errors()` |
-| `artifacts_research/models/vae.pt` + `vae_config.json` | `src_research/vae_utils.py::VAE` + `vae_reconstruction_errors()` — **note: there is no `load_vae()` counterpart to the autoencoder's `load_autoencoder()`**, so the architecture must be reconstructed from `vae_config.json` and the weights loaded manually. A packaging gap to close before deployment |
-| `artifacts_research/models/lstm_ae.pt` + `lstm_ae_config.json` | `src_research/08_models_deep.py::LSTMAutoencoder` — same gap; no dedicated loader |
+| `artifacts_research/models/{dbscan,hdbscan}.pkl` | `joblib.load` — batch-only, per above |
 | `artifacts_research/models/shared_robust_scaler.pkl` | applied before every model |
 
 **Two invariants that must survive into production code**, both established in Phase 8 §0:
@@ -159,10 +158,11 @@ Every one of these is a bounded, incrementally-updatable statistic except the ru
 1. **Sign convention.** Every `score_<model>` column is oriented so that **higher = more anomalous**. sklearn's `decision_function` for IsolationForest / LOF / OneClassSVM / EllipticEnvelope uses the opposite convention, so those four are negated at the point of scoring. Getting this wrong inverts the alert queue and would not be obvious from the score distribution alone.
 2. **One scaler, fit once.** All models consume the same `RobustScaler` fit on the training split. Refitting the scaler at scoring time — an easy mistake, since the transform is one line — would silently change every score.
 
-**Two per-model behaviours the scoring service must handle explicitly:**
+**One per-model behaviour the scoring service must handle explicitly:**
 
 - **K-Means needs more than its pickle.** Its anomaly score is distance to the nearest centroid *among clusters holding ≥1% of training rows* (Phase 8 §1.7). Without that filter the score inverts: the most extreme transactions in the dataset formed their own micro-clusters and would have scored as the safest points in the book. The set of valid centroid indices is model state and must ship alongside `kmeans.pkl`.
-- **LSTM-AE has a permanent coverage hole.** It scores only accounts with ≥3 transactions — 2,402 of 2,512 rows (95.6%), leaving 110 rows (4.4%) with no score (Phase 8 §2.11). This is not an error path to fix; it is expected behaviour that Stage 4 must absorb.
+
+(The removed LSTM-AE's permanent coverage hole — it only scored accounts with ≥3 transactions, 2,402 of 2,512 rows — no longer applies to this pipeline: all 8 classical models score every row.)
 
 ---
 
@@ -170,16 +170,15 @@ Every one of these is a bounded, incrementally-updatable statistic except the ru
 
 **Implemented by** `src_research/12_ensemble_scoring.py`. **Primary output:** `ensemble_percentile_average` in `artifacts_research/ensemble_scores.csv`.
 
-Each model's score is converted to its own empirical percentile via `(rank − 0.5) / n_valid`, and a transaction's score is the mean over **only the models that produced a score for it** — missing models are skipped and the remainder renormalised, not imputed (Phase 12 §1.3). Two consequences that matter operationally:
+Each model's score is converted to its own empirical percentile via `(rank − 0.5) / n_valid`, and a transaction's score is the mean over the 8 classical models' percentiles (all 8 produce a score for every row now that the Autoencoder/VAE/LSTM-AE — the one family with a coverage hole — have been removed from this pipeline; see the project decision log). The aggregation code is still written NaN-aware (missing models skipped, remainder renormalised, not imputed — Phase 12 §1.3) for robustness, but in practice this branch is now a no-op.
 
-- The LSTM-AE coverage hole resolves itself. All rows get a score; the 110 short-history rows are simply averaged over the other models. Phase 12 §4 confirms no row is missing a value.
-- The same mechanism is the system's **model-outage behaviour**. If a model fails to load or times out, the score degrades gracefully rather than erroring — which is exactly why this strategy was preferred over PCA Stacking, which requires a complete matrix and forced a zero-imputation for LSTM-AE's missing rows.
+The percentile-average design's real operational value is **model-outage behaviour**: if a model fails to load or times out, the score degrades gracefully rather than erroring — which is exactly why this strategy was preferred over PCA Stacking, which requires a complete matrix and would force a zero-imputation for any missing model's score.
 
-**Reference distribution.** The published score has mean 0.5001, std 0.2029, min 0.0862, Q1 0.3381, Q3 0.6574, max 0.9988 (Phase 13). By construction the mean of a percentile average sits near 0.5 whatever the data looks like — **which is exactly why the score's own distribution is not a drift signal**, and why Phase 16 monitors the input features and the cross-model agreement instead.
+**Reference distribution.** The published score has mean 0.5000, std 0.1970, min 0.1018, Q1 0.3413, Q3 0.6523, max 0.9994 (Phase 13, regenerated). By construction the mean of a percentile average sits near 0.5 whatever the data looks like — **which is exactly why the score's own distribution is not a drift signal**, and why Phase 16 monitors the input features and the cross-model agreement instead.
 
-**Secondary score, computed in parallel:** the Phase 12 Weighted Average (weights in `artifacts_research/ensemble_weights.json`, ranging HDBSCAN 0.113 down to DBSCAN 0.058). It costs nothing extra once the member models have run, and it is unbounded, which is the one thing the percentile score cannot do — see §6.
+**Secondary score, computed in parallel:** the Phase 12 Weighted Average (weights in `artifacts_research/ensemble_weights.json`, ranging HDBSCAN 0.153 down to DBSCAN 0.085 across the 8 classical models). It costs nothing extra once the member models have run, and it is unbounded, which is the one thing the percentile score cannot do — see §6.
 
-**Open item carried from Phase 14 §3:** the published `ensemble_percentile_average` is the **11-model** score. The 9-model online variant recommended here has not been computed, so it must be validated against the published score (Spearman plus top-5% Jaccard, the measures Phase 12 §2 used) before any threshold below is applied to it.
+**Open item carried from Phase 14 §3, updated:** the published `ensemble_percentile_average` is the **8-model** (all-classical, batch) score, including DBSCAN and HDBSCAN. The 6-model online variant (excluding DBSCAN/HDBSCAN) recommended here has not been computed, so it must be validated against the published score (Spearman plus top-5% Jaccard, the measures Phase 12 §2 used) before any threshold below is applied to it.
 
 ---
 
@@ -189,17 +188,17 @@ Each model's score is converted to its own empirical percentile via `(rank − 0
 
 | Tier | Rule | Score cut | Volume in the 2,512-row sample |
 |---|---|---:|---|
-| **Priority review** | ≥ 99th percentile | 0.9145 | 26 (1.04%) |
-| **Standard review** | ≥ 95th percentile | 0.8406 | 126 (5.02%) |
+| **Priority review** | ≥ 99th percentile | 0.9167 | 26 (1.04%) |
+| **Standard review** | ≥ 95th percentile | 0.8414 | 126 (5.02%) |
 | No alert | below | — | 2,386 (94.98%) |
 
 **No automatic block tier**, for the reason given in Phase 14 §4: v1's block threshold came from a cost sweep against supervised proxy labels, and Phase 13 §1 established that the sweep cannot be reproduced without a label, because a false-negative count requires knowing which *unflagged* transactions are fraud. Blocking on a score whose false-negative rate has never been measured is not defensible. Every output of this system lands in a human queue.
 
-**Do not apply sigma or IQR rules to this score.** Phase 13 §3 found mean+3σ = 1.1088 and Q3+1.5×IQR = 1.1363, both above the score's observed maximum of 0.9988 — **both flag zero transactions**. Averaging eleven bounded percentiles compresses the tails, so normal-theory thresholds have nothing to bite on. If a stakeholder wants a "more than three standard deviations from typical" framing, apply it to the parallel Weighted Average score instead, where mean+3σ = 2.1516 flags 17 transactions and Q3+1.5×IQR = 0.9413 flags 87. This is a property of the score's shape, not a defect in either strategy, and the two-score design in §5 exists so both framings are available without recomputation.
+**Do not apply sigma or IQR rules to this score.** Phase 13 §3 found mean+3σ = 1.0911 and Q3+1.5×IQR = 1.1188, both above the score's observed maximum of 0.9994 — **both flag zero transactions**. Averaging eight bounded percentiles compresses the tails, so normal-theory thresholds have nothing to bite on. If a stakeholder wants a "more than three standard deviations from typical" framing, apply it to the parallel Weighted Average score instead, where mean+3σ = 2.2379 flags 16 transactions and Q3+1.5×IQR = 1.0468 flags 63. This is a property of the score's shape, not a defect in either strategy, and the two-score design in §5 exists so both framings are available without recomputation.
 
-**Alert payload.** Each alert should carry: the transaction's raw fields, its `ensemble_percentile_average`, the **per-model percentile vector** (this is the score's explanation — see Phase 14 §1.15), and both SHAP attributions from the explanation layer. The per-model vector is what lets a reviewer see whether a transaction is flagged by consensus or by one model's idiosyncrasy — the distinction that `TX000566` (Phase 11 §2) exists to illustrate.
+**Alert payload.** Each alert should carry: the transaction's raw fields, its `ensemble_percentile_average`, the **per-model percentile vector** (this is the score's explanation — see Phase 14 §1.15), and the Isolation Forest SHAP attribution from the explanation layer. The per-model vector is what lets a reviewer see whether a transaction is flagged by consensus or by one model's idiosyncrasy.
 
-**Explanation layer.** `artifacts_research/shap_isolation_forest.csv` and `shap_autoencoder.csv` hold per-row, per-feature attributions for all 2,512 transactions, produced by `src_research/11_explainability.py`. Both are shown, never one alone. Phase 11 measured their global importance rankings at Spearman **ρ = −0.157** with 1 of 10 top features shared — showing only one of them would hide exactly the disagreement the reviewer needs to see. Costs at this scale: TreeExplainer 7.2s and GradientExplainer 128.8s for all 2,512 rows, both precomputable in batch.
+**Explanation layer.** `artifacts_research/shap_isolation_forest.csv` holds per-row, per-feature SHAP attributions for all 2,512 transactions, produced by `src_research/11_explainability.py` via `shap.TreeExplainer` (exact, no background sample needed). This is now the sole explainability output in this pipeline: the cross-model SHAP comparison this section previously described (Isolation Forest vs. the now-removed Autoencoder) was dropped along with the Autoencoder itself, and no other remaining classical model (LOF, OCSVM, Elliptic Envelope, DBSCAN, HDBSCAN, K-Means, GMM) is naturally SHAP-compatible without an expensive, unused `KernelExplainer`. Cost at this scale: TreeExplainer took 8.5s for all 2,512 rows, precomputable in batch.
 
 ---
 
@@ -227,8 +226,8 @@ A realistic follow-up, scoped honestly. Five changes, in dependency order:
 
 1. **Score source.** Replace `predict_proba` with a lookup of `ensemble_percentile_average` from `artifacts_research/ensemble_scores.csv`, joined on `TransactionID`. This is the cheapest change and it removes the supervised layer entirely — no XGBoost, no SMOTE, no proxy labels. It also removes the circularity that `LIMITATIONS.md` names as this project's central caveat: the displayed score becomes the unsupervised consensus directly, rather than a supervised model trained to imitate it.
 2. **Thresholds.** `artifacts/thresholds.json`'s 0.09/0.94 probability cuts are meaningless against a percentile score and must be replaced by Phase 13's 0.8406/0.9145. The `_verdict_for()` helper (`api_server.py:106`) maps to three verdicts including Block — the Block branch should be **removed**, not re-pointed, per §6.
-3. **Explanation layer.** The single `TreeExplainer`-over-XGBoost pass has no equivalent for an 11-model percentile average. It is replaced by the two precomputed matrices (`shap_isolation_forest.csv`, `shap_autoencoder.csv`) plus the per-model percentile vector. The detail drawer then shows **two** SHAP breakdowns rather than one — more UI work, and a better result: an analyst can see when the two detector families disagree, which is the whole point of Phase 11.
-4. **Model Comparison page.** Currently renders v1's four-detector comparison and the SMOTE-vs-class-weighted contrast from numbers hardcoded in `api_server.py`. Repoint at Phase 8's 12-model table and Phase 10's internal-validity metrics (`artifacts_research/internal_validity_metrics.csv`) — richer content, mechanically simple.
+3. **Explanation layer.** The single `TreeExplainer`-over-XGBoost pass has no equivalent for an 8-model percentile average. It is replaced by the precomputed `shap_isolation_forest.csv` matrix plus the per-model percentile vector. The detail drawer then shows the Isolation Forest SHAP breakdown alongside the full per-model score vector — more UI work than today's single pass, and a better result: an analyst can see whether a transaction is flagged by consensus or by one model's idiosyncrasy, even without a second SHAP family (Phase 11's cross-model SHAP comparison was dropped when the Autoencoder was removed from this pipeline; no other remaining classical model is naturally SHAP-compatible).
+4. **Model Comparison page.** Currently renders v1's four-detector comparison and the SMOTE-vs-class-weighted contrast from numbers hardcoded in `api_server.py`. Repoint at Phase 8's 9-model table (8 classical detectors + the Hybrid Ensemble, IF+LOF+GMM majority vote) and Phase 10's internal-validity metrics (`artifacts_research/internal_validity_metrics.csv`) — richer content, mechanically simple.
 5. **What-if Simulator — blocked.** It calls `fe.transform_new(txn, STATE["reference"])` (`api_server.py:691`), which produces v1's 20 features. It cannot be migrated until the real-time feature-engineering gap in §3.2 is closed. The honest interim options are to leave it scoring against v1's model with a clear label saying so, or to hide it. **Do not** feed 20 features into models expecting 46.
 
 Items 1, 2 and 4 are a day's work. Item 3 is a few days of UI work. Item 5 is the real-time feature store, which is §8-scale work.
@@ -270,13 +269,13 @@ Three further arguments, all specific to this system:
 | Feature schema | `feature_cols` (46 names, ordered) from `autoencoder_config.json` | Column order is a binding contract with every fitted model |
 | Feature-engineering constants | the `Amount_ZScore_Account` denominator floor ($14.60 = 5% of the training `TransactionAmount` std), `Location_Freq` frequency table, `reference.pkl`-equivalent per-account state | Training-data-derived; a new training run changes them |
 | Scaler | `models/shared_robust_scaler.pkl`, `autoencoder_scaler.pkl` | Fit on the 2,009-row train split; refitting at scoring time silently changes every score |
-| Models | the 9 online model artifacts (+ DBSCAN/HDBSCAN for batch) | — |
+| Models | the 6 online-capable classical model artifacts + the Hybrid Ensemble's vote logic (+ DBSCAN/HDBSCAN for batch, 8 classical models total) | — |
 | K-Means auxiliary state | the set of valid centroid indices (≥1% of training rows) | Without it the score inverts (§4) |
 | Ensemble parameters | `ensemble_weights.json` for the parallel Weighted Average | Derived from `model_pairwise_spearman.csv`; shifts with the data |
 | Thresholds | 0.9145 / 0.8406 from `threshold_analysis.json` | Percentiles of a specific score built by a specific model set |
 | Reproducibility metadata | `random_state=42`, the 2,009/503 split, the LSTM-AE's separate account-level 342/86 split, library versions | Phase 8 §0 cross-checked the row-level split against the autoencoder's own `split` column and confirmed a match; that check is only meaningful if the split is recorded |
 
-The Phase 7 autoencoder is the model to copy here: it already persists weights, the *exact* fitted scaler, the architecture, the ordered feature list, and per-row errors with a train/val flag. Every other model should be packaged to the same standard.
+Isolation Forest (Model 1) is the model to copy here: `07_models_classical.py` already persists the fitted estimator, the shared scaler it was fit against, the ordered feature list it expects, and — via `11_explainability.py` — a full per-row SHAP attribution matrix. Every other model should be packaged to the same standard.
 
 **Storage, free and local only.** Two options, both open-source and offline:
 
@@ -285,7 +284,7 @@ The Phase 7 autoencoder is the model to copy here: it already persists weights, 
 
 The dated-directory option is recommended for this system's cadence. Either way, **the version identifier must be written onto every alert** — an alert with no record of which model version produced it cannot be audited, and a bank will ask.
 
-**A gap to close before any handover: `requirements.txt` does not describe this pipeline.** It lists pandas, numpy, scikit-learn, xgboost, shap, imbalanced-learn, matplotlib and joblib — the v1 dependency set. The research pipeline additionally requires **torch** (Models 9, 10, 11), **optuna** (Phase 9), and the standalone **hdbscan** package (Model 6, imported as `hdbscan` in `src_research/07_models_classical.py:416`, not `sklearn.cluster.HDBSCAN`), and the dashboard requires **fastapi** and **uvicorn** (documented in `dashboard/README.md`, not in `requirements.txt`). A clean-machine install from `requirements.txt` today cannot run Phases 8, 9 or the dashboard. Splitting into `requirements.txt` / `requirements-research.txt` / `requirements-dashboard.txt`, with pinned versions, is a prerequisite for reproducible deployment.
+**A gap to close before any handover: `requirements.txt` does not describe this pipeline.** It lists pandas, numpy, scikit-learn, xgboost, shap, imbalanced-learn, matplotlib and joblib — the v1 dependency set. The research pipeline additionally requires **optuna** (Phase 9, Isolation Forest and GMM tuning) and the standalone **hdbscan** package (Model 6, imported as `hdbscan` in `src_research/07_models_classical.py`, not `sklearn.cluster.HDBSCAN`) and **umap-learn** (Phase 7 dimensionality reduction) — **torch is no longer a dependency of this pipeline**, now that the Autoencoder, VAE and LSTM-AE (the only models that used it) have been removed — and the dashboard requires **fastapi** and **uvicorn** (documented in `dashboard/README.md`, not in `requirements.txt`). A clean-machine install from `requirements.txt` today cannot run Phase 9 or the dashboard. Splitting into `requirements.txt` / `requirements-research.txt` / `requirements-dashboard.txt`, with pinned versions, is a prerequisite for reproducible deployment.
 
 ---
 
@@ -316,8 +315,8 @@ The hard requirement is that the store's update and the score's read are **consi
 | One-Class SVM | Phase 8 §1.3: "a real scalability concern past ~50k–100k rows" — a QP roughly O(n²)–O(n³) in support vectors | Subsample the training set, or switch to `SGDOneClassSVM`; either changes the model and requires revalidation |
 | LOF | O(n²) neighbour search; Phase 8 §1.2: needs an ANN index "well before six figures of rows" | An approximate-nearest-neighbour index (HNSW/Annoy — both free) |
 | DBSCAN, HDBSCAN | Full refit over all history on every run, with no out-of-sample scoring | Drop from the online set (Phase 14 §3, Option B), or enable `prediction_data=True` for HDBSCAN and revalidate |
-| GMM | 10 full-covariance components × 46 features = 1,081 covariance parameters per component; Phases 8 and 9 both flagged overfitting at n=2,009 | More data genuinely helps here — but Phase 9's recommendation of `tied` covariance should be revisited on the larger sample rather than carried over unexamined |
-| Isolation Forest, Autoencoder, VAE, K-Means | No wall. Tree traversal, an O(1) forward pass, and a centroid distance all scale fine | — |
+| GMM | 9-10 full-covariance components × 46 features = 1,000+ covariance parameters per component; Phases 8 and 9 both flagged overfitting at n=2,009 | More data genuinely helps here — but Phase 9's recommendation of `tied` covariance should be revisited on the larger sample rather than carried over unexamined |
+| Isolation Forest, K-Means | No wall. Tree traversal and a centroid distance both scale fine | — |
 
 ### 10.4 Everything that must be refit, not ported
 
@@ -338,6 +337,6 @@ The leakage-safe design, the feature definitions, the scaler choice and its meas
 
 ## 11. Handoff to Phase 16
 
-The architecture above produces four things monitoring must watch, and Phase 16 addresses each: the 46 input features (drift), the cross-model agreement that stands in for this system's absent ground truth (concept drift), the flagged volume, and — because Phase 10 §2 measured 41–47% flagged-set churn between retrains with no drift at all — the flagged-set *consistency*, not just its size.
+The architecture above produces four things monitoring must watch, and Phase 16 addresses each: the 46 input features (drift), the cross-model agreement that stands in for this system's absent ground truth (concept drift), the flagged volume, and — because Phase 10 §2's bootstrap-stability check (now IF, LOF and GMM, the Hybrid Ensemble's three components) measured 41–72% flagged-set churn between retrains with no drift at all (Isolation Forest 47.3%, LOF 41.0%, GMM 71.9%) — the flagged-set *consistency*, not just its size.
 
 *Next: `research/14_monitoring_framework.md` (Phase 16).*

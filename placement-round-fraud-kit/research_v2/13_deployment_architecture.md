@@ -28,19 +28,19 @@ This phase describes how the pipeline recommended in Phase 14 (v2) (`research_v2
                           │    models/shared_robust_scaler.pkl    │
                           └───────────────┬──────────────────────┘
                                           │
-        ┌─────────────────────────────────┼─────────────────────────────────┐
-        │                                 │                                 │
-┌───────▼────────┐            ┌───────────▼──────────┐          ┌───────────▼──────────┐
-│ STAGE 3a       │            │ STAGE 3b             │          │ STAGE 3c             │
-│ OUT-OF-SAMPLE  │            │ BATCH-ONLY MODELS    │          │ SEQUENCE MODEL       │
-│ CAPABLE (9)    │            │ DBSCAN, HDBSCAN      │          │ LSTM-AE              │
-│ IF, LOF, OCSVM │            │ no .predict()        │          │ needs ≥3 txns/account│
-│ EE, K-Means,   │            │ must refit on the    │          │ 110/2,512 rows (4.4%)│
-│ GMM, AE, VAE   │            │ full history         │          │ unscoreable          │
-│ (+LSTM-AE*)    │            │ → Phase 14 §3        │          │ NOT RECOMMENDED      │
-└───────┬────────┘            └───────────┬──────────┘          └───────────┬──────────┘
-        │                                 │                                 │
-        └─────────────────────────────────┼─────────────────────────────────┘
+                    ┌─────────────────────┼─────────────────────┐
+                    │                                           │
+        ┌───────────▼────────┐                       ┌──────────▼──────────┐
+        │ STAGE 3a           │                       │ STAGE 3b             │
+        │ OUT-OF-SAMPLE      │                       │ BATCH-ONLY MODELS    │
+        │ CAPABLE (6)        │                       │ DBSCAN, HDBSCAN      │
+        │ IF, LOF, OCSVM,    │                       │ no .predict()        │
+        │ EE, K-Means, GMM   │                       │ must refit on the    │
+        │ + Hybrid Ensemble  │                       │ full history         │
+        │ (IF+LOF+GMM vote)  │                       │ → Phase 14 §3        │
+        └───────────┬────────┘                       └───────────┬──────────┘
+                    │                                           │
+                    └─────────────────────┬─────────────────────┘
                                           │
                           ┌───────────────▼──────────────────────┐
                           │  STAGE 4 — ENSEMBLE SCORE             │
@@ -65,11 +65,13 @@ This phase describes how the pipeline recommended in Phase 14 (v2) (`research_v2
                                           │
                           ┌───────────────▼──────────────────────┐
                           │  STAGE 6 — EXPLANATION                │
-                          │  IF SHAP (TreeExplainer, exact, 8.3s) │
-                          │  AE SHAP (GradientExplainer, 112.3s)  │
+                          │  IF SHAP (TreeExplainer, exact, ~8s)  │
+                          │  sole explainability output --        │
+                          │  no other classical model is          │
+                          │  SHAP-compatible without an expensive │
+                          │  KernelExplainer (not used here)      │
                           │  precomputed for all 2,512 rows:      │
                           │  shap_isolation_forest_v2.csv         │
-                          │  shap_autoencoder_v2.csv              │
                           └───────────────┬──────────────────────┘
                                           │
                           ┌───────────────▼──────────────────────┐
@@ -82,7 +84,9 @@ This phase describes how the pipeline recommended in Phase 14 (v2) (`research_v2
                           └──────────────────────────────────────┘
 ```
 
-**Read the diagram as three bands.** Stage 1–2 are batch data preparation. Stages 3–6 are the scoring pipeline, and their most consequential property is that **Stage 3b breaks real-time scoring for the full 11-model ensemble** (Phase 14 v2 §3). Stage 7 is the only component in the entire project that a human being actually looks at.
+**Read the diagram as three bands.** Stage 1–2 are batch data preparation. Stages 3–6 are the scoring pipeline, and their most consequential property is that **Stage 3b breaks real-time scoring for the full 8-model ensemble** (Phase 14 v2 §3). Stage 7 is the only component in the entire project that a human being actually looks at.
+
+**No deep-learning model remains in this pipeline.** Autoencoder, VAE and LSTM-AE were removed; the pipeline now runs 8 classical unsupervised detectors (Isolation Forest, LOF, One-Class SVM, Elliptic Envelope, DBSCAN, HDBSCAN, K-Means, GMM) plus Model 9, the Hybrid Ensemble, redefined as **Isolation Forest + LOF + GMM majority vote (≥2 of 3)** — GMM's top-5%-by-negative-log-likelihood flag now stands in for the removed Autoencoder's flag in that vote, with the same ≥2-of-3 logic and the same `hybrid_vote_count` / `flag_majority` output columns.
 
 ---
 
@@ -149,22 +153,19 @@ This has three separate implications, which are often conflated:
 
 ## 4. Stage 3 — Model Scoring
 
-Twelve models were built (Phase 8 v2). They partition into three operationally distinct groups, and the partition — not the model quality — is what drives the architecture.
+Nine models were built (Phase 8 v2): 8 classical unsupervised detectors plus the Hybrid Ensemble (Model 9). No deep-learning model is trained in this pipeline. They partition into two operationally distinct groups, and the partition — not the model quality — is what drives the architecture.
 
-**3a. Out-of-sample capable (8 unconditionally, 9 counting the LSTM-AE's restricted case).** Isolation Forest, LOF (`novelty=True`), One-Class SVM, Elliptic Envelope, K-Means, GMM, Autoencoder, VAE — all eight fit on the 2,009-row training split and scored all 2,512 rows out-of-sample. The LSTM-AE also scores out-of-sample, but only for the 95.6% of rows whose account has ≥3 transactions, which is why it is counted separately in 3c. Artifacts: `artifacts_research_v2/models/*.pkl` for the classical models, `artifacts_research_v2/autoencoder.pt` + `autoencoder_scaler.pkl` + `autoencoder_config.json` and `models/vae.pt` for the deep ones, all reloadable through `src_research_v2/autoencoder_utils.py::load_autoencoder()` and `vae_utils.py`.
+**3a. Out-of-sample capable (6 base models + the Hybrid Ensemble).** Isolation Forest, LOF (`novelty=True`), One-Class SVM, Elliptic Envelope, K-Means, GMM — all six fit on the 2,009-row training split and scored all 2,512 rows out-of-sample. The Hybrid Ensemble (IF + LOF + GMM majority vote) inherits out-of-sample capability from its three components. Artifacts: `artifacts_research_v2/models/*.pkl`, reloadable directly with `joblib.load`.
 
-**3b. Batch-only (2 models).** DBSCAN and HDBSCAN have no out-of-sample `.predict()` in this build (Phase 12 v2 §0; HDBSCAN's `prediction_data=True` was not set at fit time). **This is the single fact that decides batch versus real-time for the full ensemble**, and Phase 14 (v2) §3 sets out the three options. Option B (drop both, aggregate over the remaining set) is the recommended path; Option C (re-enable HDBSCAN via `approximate_predict`) is a stronger follow-up here than it was in-house, because HDBSCAN is a materially more useful member on this feature set (8.88% best-config noise vs. the in-house pipeline's 53.94%, and the field's highest mean flagged-set agreement).
-
-**3c. Not recommended for deployment (1 model).** The LSTM-AE cannot score 110/2,512 rows (4.4%) at all — accounts with fewer than 3 transactions have no sequence — and Phase 8 (v2) §2.11 measured it overfitting from around epoch 50 (val MSE 0.49 → 0.79 by epoch 150). In production the coverage problem gets worse, not better: new customers are precisely the population with short histories. Phase 14 (v2) §1.16 scores it last of 16.
+**3b. Batch-only (2 models).** DBSCAN and HDBSCAN have no out-of-sample `.predict()` in this build (Phase 12 v2 §0; HDBSCAN's `prediction_data=True` was not set at fit time). **This is the single fact that decides batch versus real-time for the full ensemble**, and Phase 14 (v2) §3 sets out the three options. Option B (drop both, aggregate over the remaining set) is the recommended path; Option C (re-enable HDBSCAN via `approximate_predict`) is a stronger follow-up here than it was in-house, because HDBSCAN is a materially more useful member on this feature set (8.88% flagged rate vs. the in-house pipeline's far higher noise rate, and a strong mean flagged-set agreement with the rest of the field).
 
 **Measured scoring cost at n=2,512 × 18 features**, from `artifacts_research_v2/model_summary_classical.json` (fit + score, all configs tried):
 
-| Model | Time | Model | Time |
+| Model | Time (all configs) | Model | Time (all configs) |
 |---|---:|---|---:|
-| One-Class SVM (5 configs) | 0.727s | Elliptic Envelope (3 configs) | 3.419s |
-| DBSCAN (9 configs) | 0.637s | LOF (5 configs) | 4.002s |
-| HDBSCAN (4 configs) | 1.311s | Isolation Forest (5 configs) | 4.480s |
-| VAE (200-epoch train) | 44.3s | LSTM-AE (150-epoch train) | 31.7s |
+| One-Class SVM (5 configs) | 0.78s | Elliptic Envelope (3 configs) | 2.76s |
+| DBSCAN (9 configs) | 0.75s | LOF (5 configs) | 5.38s |
+| HDBSCAN (4 configs) | 1.25s | Isolation Forest (5 configs) | 4.10s |
 
 Every one of these is negligible at this scale. **Compute is not the constraint on this architecture; out-of-sample capability and artifact lifecycle are.**
 
@@ -172,16 +173,16 @@ Every one of these is negligible at this scale. **Compute is not the constraint 
 
 ## 5. Stage 4 — Ensemble Score
 
-`src_research_v2/12_ensemble_scoring.py` produces four scores for all 2,512 rows into `artifacts_research_v2/ensemble_scores_v2.csv`. The production score is **`ensemble_percentile_average`** (Phase 12 v2 §3, upheld by Phase 14 v2 §4). Distribution: mean 0.5007, std 0.2250, min 0.0458, max 0.9951.
+`src_research_v2/12_ensemble_scoring.py` combines the **8 classical models only** (Hybrid Ensemble excluded as an input, to avoid double-counting IF/LOF/GMM) into four scores for all 2,512 rows in `artifacts_research_v2/ensemble_scores_v2.csv`. The production score is **`ensemble_percentile_average`** (Phase 12 v2 §3, upheld by Phase 14 v2 §4). Distribution: mean 0.5000, std 0.2242, min 0.0576, max 0.9967.
 
 Two properties make it the right choice for a production interface, both already verified:
 
 - **It handles a missing member natively.** Percentile aggregation skips absent scores and renormalises over what is available (§1.3) — which is exactly the mechanism that makes Phase 14 (v2)'s Option B (drop DBSCAN/HDBSCAN) implementable without redesigning the score. This is not a lucky coincidence; it is why the strategy was preferred.
 - **It is bounded in (0,1),** so a frozen reference distribution can be monitored directly and thresholds are comparable across batches of different sizes. Rank (Borda) aggregation, its near-mathematical twin (ρ=0.9999), does **not** have this property — a Borda sum's scale depends on how many rows were ranked together.
 
-**Secondary score, computed in parallel at zero additional model cost: `ensemble_weighted_average`.** It is unbounded, which is the one thing the percentile score cannot do — Phase 13 (v2) §3 measured that mean+3σ and Q3+1.5×IQR both flag **zero** transactions on the percentile score (their thresholds, 1.1757 and 1.2332, exceed the score's maximum of 0.9951) while flagging 29 and 79 respectively on the weighted average. Keep both, and use the weighted average whenever a stakeholder wants a "three sigma" framing.
+**Secondary score, computed in parallel at zero additional model cost: `ensemble_weighted_average`.** It is unbounded, which is the one thing the percentile score cannot do — Phase 13 (v2) §3 measured that mean+3σ and Q3+1.5×IQR both flag **zero** transactions on the percentile score (their thresholds, 1.1725 and 1.2120, exceed the score's maximum of 0.9967) while flagging 32 and 75 respectively on the weighted average. Keep both, and use the weighted average whenever a stakeholder wants a "three sigma" framing.
 
-**A caution that must travel with any reduced-member deployment.** The published `ensemble_percentile_average` is an 11-model score. A 9-model score is a **different score**, and Phase 13 (v2)'s thresholds do not transfer to it unrevalidated. The revalidation is cheap (Spearman + top-5% Jaccard against the published score, the same two measures Phase 12 v2 §2 already uses) and it has **not been run** (Phase 14 v2 §3).
+**A caution that must travel with any reduced-member deployment.** The published `ensemble_percentile_average` is an 8-model score. Dropping any further members would make it a **different score**, and Phase 13 (v2)'s thresholds would not transfer unrevalidated. The revalidation recipe is cheap (Spearman + top-5% Jaccard against the published score, the same two measures Phase 12 v2 §2 already uses) should the member set ever shrink further.
 
 ---
 
@@ -189,8 +190,8 @@ Two properties make it the right choice for a production interface, both already
 
 | Tier | Rule | Volume in this sample | Daily load at this sample's rate |
 |---|---|---:|---:|
-| **Priority review** | `ensemble_percentile_average` ≥ **0.9510** (P99) | 26 (1.04%) | ~0.07 transactions/day |
-| **Standard review** | ≥ **0.8671** (P95) | 126 (5.02%) | ~0.35 transactions/day |
+| **Priority review** | `ensemble_percentile_average` ≥ **0.9627** (P99) | 26 (1.04%) | ~0.07 transactions/day |
+| **Standard review** | ≥ **0.8852** (P95) | 126 (5.02%) | ~0.35 transactions/day |
 | Normal | below P95 | 2,386 (94.98%) | — |
 
 Source: `artifacts_research_v2/threshold_analysis_v2.json`, `threshold_flagged_counts_v2.csv`.
@@ -199,7 +200,7 @@ Source: `artifacts_research_v2/threshold_analysis_v2.json`, `threshold_flagged_c
 
 **The daily figures above are not a capacity plan.** This dataset covers 365 days at 6.88 transactions/day. The number that generalises is the *ratio* — P95 flags roughly 4.8× as many transactions as P99 — not the absolute counts.
 
-**Alert content, per Phase 14 (v2) §4:** every alert carries the ensemble score, the tier, the per-model percentile breakdown, and **both** SHAP explanations (Isolation Forest and Autoencoder) side by side. Showing only one is specifically counter-indicated: their importance vectors correlate at ρ = −0.3705 (Phase 11 v2 §1), and `TX000615` is a worked example where the two models disagree about which aspect of the same transaction is anomalous.
+**Alert content, per Phase 14 (v2) §4:** every alert carries the ensemble score, the tier, the per-model percentile breakdown, and the **Isolation Forest SHAP explanation** — the sole explainability output in this pipeline (§7.1). No other classical model here is naturally SHAP-compatible without an expensive KernelExplainer, which this codebase does not use.
 
 ---
 
@@ -207,11 +208,12 @@ Source: `artifacts_research_v2/threshold_analysis_v2.json`, `threshold_flagged_c
 
 ### 7.1 Explanation artifacts
 
-Both explainers were run over all 2,512 rows and saved, so serving an explanation is a lookup, never a recomputation:
+The explainer was run over all 2,512 rows and saved, so serving an explanation is a lookup, never a recomputation:
 
-- `artifacts_research_v2/shap_isolation_forest_v2.csv` — `shap.TreeExplainer`, **exact**, 8.3s for the full dataset, sign-flipped so positive = pushes anomaly score up (verified against `score_samples`, ρ=1.0000 on a 200-row spot-check).
-- `artifacts_research_v2/shap_autoencoder_v2.csv` — `shap.GradientExplainer` over the `AEErrorWrapper` module, 112.3s for the full dataset, additivity spot-checked at ρ=0.9879. No sign flip needed.
-- `shap_global_importance_comparison_v2.csv`, `shap_local_explanations_v2.json` — the global ranking and the four worked local explanations.
+- `artifacts_research_v2/shap_isolation_forest_v2.csv` — `shap.TreeExplainer`, **exact**, ~8s for the full dataset, sign-flipped so positive = pushes anomaly score up (verified against `score_samples`, ρ=1.0000 on a 200-row spot-check).
+- `shap_local_explanations_v2.json` — the four worked local explanations.
+
+This is the **sole** explainability output in this pipeline. There is no cross-model SHAP comparison and no `shap_global_importance_comparison_v2.csv` — the Autoencoder that the comparison used to run against was removed, and no other remaining classical model (LOF, OCSVM, Elliptic Envelope, DBSCAN, HDBSCAN, K-Means, GMM) is naturally SHAP-compatible without an expensive KernelExplainer, which this codebase does not use anywhere.
 
 ### 7.2 Bank Transaction Fraud & Anomaly Detection — what it is, and what changed
 
@@ -219,16 +221,16 @@ Bank Transaction Fraud & Anomaly Detection (`dashboard/`) is a browse-first frau
 
 **Bank Transaction Fraud & Anomaly Detection was originally wired to the v1 pipeline** (`artifacts/labeled.csv`, `xgb_model.json`, `reference.pkl`, `thresholds.json`), showing risk tiers derived from a supervised XGBoost model trained to reproduce a 4-detector unsupervised ensemble. **It has now been repointed at this pipeline.** The visual design, branding and page structure are unchanged — this was a data-source swap, not a redesign.
 
-What Bank Transaction Fraud & Anomaly Detection now serves:
+What Bank Transaction Fraud & Anomaly Detection now serves (as of this pipeline's artifact regeneration -- the dashboard's own backend/frontend code is repointed separately, outside the scope of this phase):
 
 | Surface | Source (this pipeline) |
 |---|---|
 | Risk score | `ensemble_percentile_average` from `artifacts_research_v2/ensemble_scores_v2.csv` |
-| Risk tier | Phase 13 (v2) cutoffs: ≥0.9510 → priority, ≥0.8671 → standard review, else normal |
-| Per-transaction explanation | Precomputed **Isolation Forest** and **Autoencoder** SHAP rows, shown side by side, from `shap_*_v2.csv` |
-| Per-model detail | All 11 members' per-row percentiles from `model_scores_all.csv` |
-| Model Comparison page | The 12-model comparison: flagged rates, internal validity (Phase 10 v2 §1), bootstrap stability (Phase 10 v2 §2), ensemble weights and strategy agreement (Phase 12 v2) |
-| Explainability page | Global mean\|SHAP\| for both models from `shap_global_importance_comparison_v2.csv`, the ρ = −0.3705 divergence, and the Phase 13 (v2) threshold sweep |
+| Risk tier | Phase 13 (v2) cutoffs: ≥0.9627 → priority, ≥0.8852 → standard review, else normal |
+| Per-transaction explanation | Precomputed **Isolation Forest** SHAP rows (sole explainability output) from `shap_isolation_forest_v2.csv` |
+| Per-model detail | All 9 models' (8 classical + Hybrid Ensemble) per-row scores/flags from `model_scores_all.csv` |
+| Model Comparison page | The 9-model comparison: flagged rates, internal validity (Phase 10 v2 §1), bootstrap stability (Phase 10 v2 §2), ensemble weights and strategy agreement over the 8 classical models (Phase 12 v2) |
+| Explainability page | Global mean\|SHAP\| for Isolation Forest only, and the Phase 13 (v2) threshold sweep |
 | Raw transaction fields | `data/bank_transactions_data_2.csv`, joined on `TransactionID` |
 
 **Nothing on the dashboard is hand-typed from a report.** Every number is read from an artifact at startup, which is a deliberate property: it means a stale artifact produces a visibly stale dashboard rather than a dashboard that silently disagrees with the pipeline behind it.
@@ -244,9 +246,9 @@ Two options were considered (both were on the table; the choice is recorded here
 
 **Option (a) was implemented.** The rebuilt simulator requires the user to select an existing `AccountID`; it then loads that account's actual `account_frequency`, and the actual `device_frequency` / `ip_frequency` / `merchant_frequency` / `Location_FE` of the device, IP, merchant and location the user selects **from those that exist in the data** — real values, never synthesised. The user varies `TransactionAmount`, `TransactionType`, `Channel`, `Occupation`, `TransactionDuration`, `LoginAttempts`, `AccountBalance` and `CustomerAge`.
 
-The remaining features are then computed **exactly**, using the frozen training constants and the transformations recovered in Phase 14 (v2) §5: `TransactionAmount` = `StandardScaler(log1p(amount))`, `amount_to_balance_ratio` = `StandardScaler(log1p(amount / (balance + 1)))`, `high_amount_transaction` = `amount > $878.179`, and the four remaining continuous columns by their frozen means and standard deviations. This is not an approximation — the same transformation pipeline was verified to reproduce all 2,512 rows of `features_teammate_merged.csv` to within floating-point tolerance, and the resulting 18-vector is scored through the saved `shared_robust_scaler.pkl` + `isolation_forest.pkl` and `autoencoder_scaler.pkl` + `autoencoder.pt` artifacts, which reproduce the published `score_isolation_forest` and `score_autoencoder` columns to 1.0 × 10⁻¹⁶ and 4.2 × 10⁻⁸ respectively.
+The remaining features are then computed **exactly**, using the frozen training constants and the transformations recovered in Phase 14 (v2) §5: `TransactionAmount` = `StandardScaler(log1p(amount))`, `amount_to_balance_ratio` = `StandardScaler(log1p(amount / (balance + 1)))`, `high_amount_transaction` = `amount > $878.179`, and the four remaining continuous columns by their frozen means and standard deviations. This is not an approximation — the same transformation pipeline was verified to reproduce all 2,512 rows of `features_teammate_merged.csv` to within floating-point tolerance, and the resulting 18-vector is scored through the saved `shared_robust_scaler.pkl` + `isolation_forest.pkl` artifacts, which reproduce the published `score_isolation_forest` column to numerical precision.
 
-The tab is relabelled **"Account Scenario Simulator"** and carries an explicit in-UI note stating that free-form new-transaction simulation is not meaningful on a feature set built from population-level frequency statistics, and that the frequency inputs are real historical values, not user-supplied. It is scored by Isolation Forest and the Autoencoder only — **not** by the full ensemble — because DBSCAN and HDBSCAN cannot score an unseen row at all (§4), and presenting a "full ensemble score" for a hypothetical would be a fabrication. The UI says this too.
+The tab is relabelled **"Account Scenario Simulator"** and carries an explicit in-UI note stating that free-form new-transaction simulation is not meaningful on a feature set built from population-level frequency statistics, and that the frequency inputs are real historical values, not user-supplied. It is scored by Isolation Forest only — **not** by the full ensemble — because DBSCAN and HDBSCAN cannot score an unseen row at all (§4), and presenting a "full ensemble score" for a hypothetical would be a fabrication. The UI says this too.
 
 This is the honest version of the feature. A simulator that silently invented frequency values would be the kind of thing that survives a demo and fails a model-risk review.
 
@@ -272,7 +274,7 @@ Investigator decisions. `dashboard/backend/queue_state.json` accumulates Approve
 
 The reasoning is specific to this pipeline, not generic:
 
-1. **The full 11-model ensemble is batch-only by construction** (§4, Phase 14 v2 §3). Real-time requires committing to a reduced member set and revalidating the thresholds — work that has not been done.
+1. **The full 8-model ensemble is batch-only by construction** (§4, Phase 14 v2 §3). Real-time requires committing to a reduced member set and revalidating the thresholds — work that has not been done.
 2. **The volume does not demand it.** 6.88 transactions/day in this sample. Even scaled by three orders of magnitude, a nightly batch over the full history costs seconds of model time (§4).
 3. **The feature layer is the blocker, not the models.** Five of eighteen features need prior-only counters backed by a feature store (§3.2). Until that exists, "real-time" would mean recomputing global frequencies per request, which is both wrong and slow.
 4. **The output is a human review queue, not a transaction decision.** With no block tier (§6), nothing about this system needs to complete inside a payment authorisation window. A transaction flagged at 02:00 and reviewed at 09:00 loses nothing that a synchronous score would have gained.
@@ -288,24 +290,25 @@ The reasoning is specific to this pipeline, not generic:
 ```
 artifacts_research_v2/
   models/            isolation_forest.pkl, lof.pkl, ocsvm.pkl, elliptic_envelope.pkl,
-                     dbscan.pkl, hdbscan.pkl, kmeans.pkl, gmm.pkl, vae.pt, lstm_ae.pt,
+                     dbscan.pkl, hdbscan.pkl, kmeans.pkl, gmm.pkl,
                      shared_robust_scaler.pkl
-  autoencoder.pt, autoencoder_scaler.pkl, autoencoder_config.json
   model_scores_all.csv, model_summary_classical.json, model_comparison_summary.json
   ensemble_scores_v2.csv, ensemble_weights_v2.json
-  shap_isolation_forest_v2.csv, shap_autoencoder_v2.csv
+  shap_isolation_forest_v2.csv
   threshold_analysis_v2.json, threshold_flagged_counts_v2.csv
   internal_validity_metrics_v2.csv, stability_bootstrap_jaccard_v2.csv
 ```
+
+No deep-learning artifacts remain -- `autoencoder.pt`, `autoencoder_scaler.pkl`, `autoencoder_config.json`, `vae.pt`/`vae_config.json`, `lstm_ae.pt`/`lstm_ae_config.json`, `shap_autoencoder_v2.csv` and `shap_global_importance_comparison_v2.csv` were all deleted along with the models that produced them.
 
 This is adequate for research and inadequate for a bank. **What has to change:**
 
 | Requirement | Why it matters here specifically |
 |---|---|
 | **Immutable, versioned artifact sets** | Phase 10 (v2) §2 measured 0.37–0.60 flagged-set Jaccard between *retrains of the same model on resampled data*. A retrain materially changes who gets reviewed. Reconstructing why a specific transaction was flagged six months ago requires the exact artifact set that flagged it. |
-| **Scaler versioning alongside models** | `shared_robust_scaler.pkl` and `autoencoder_scaler.pkl` are as load-bearing as any model. A model paired with the wrong scaler produces plausible, wrong scores with no error. |
+| **Scaler versioning alongside models** | `shared_robust_scaler.pkl` is as load-bearing as any model. A model paired with the wrong scaler produces plausible, wrong scores with no error. |
 | **Frozen threshold constants stored as artifacts, not code** | The $878.18 `high_amount_transaction` boundary and the `Location_FE` lookup table are training-derived constants. If they are ever recomputed per batch instead of frozen, the pipeline drifts silently (Phase 16 v2 §2.4). |
-| **The 11-member manifest** | The ensemble score is defined by *which* models went into it. A 9-model and an 11-model `ensemble_percentile_average` are different scores with the same column name. The member list must be recorded with the score. |
+| **The 8-member manifest** | The ensemble score is defined by *which* models went into it (the 8 classical detectors; the Hybrid Ensemble is deliberately excluded as an input). A reduced-member `ensemble_percentile_average` is a different score with the same column name. The member list must be recorded with the score. |
 | **Score lineage** | Every alert should record the artifact-set version, the member manifest, and the threshold values that produced it. |
 
 ---
@@ -325,8 +328,7 @@ The good news, restated because it is genuinely favourable: counters are much si
 | One-Class SVM | QP solve, roughly O(n²)–O(n³) in support vectors; a concern past ~50k–100k rows | Subsample, or use a linear/Nyström approximation — either changes the score and requires revalidation |
 | LOF | O(n²) neighbour search by default | An approximate-nearest-neighbour index; a real engineering task, not a config change |
 | DBSCAN, HDBSCAN | Cannot score unseen rows at all | Phase 14 (v2) §3, Options B/C |
-| LSTM-AE | Structurally cannot score 4.4% of rows; overfits from ~epoch 50 | Not recommended for deployment |
-| Isolation Forest, K-Means, GMM, Autoencoder, VAE | None at realistic scale | — |
+| Isolation Forest, K-Means, GMM, Elliptic Envelope, Hybrid Ensemble | None at realistic scale | — |
 
 ### 10.3 Everything that must be refit, not ported
 
@@ -344,8 +346,8 @@ The methodology. The verification pattern (§3.1), the two-explainer requirement
 
 ## 11. Handoff to Phase 16
 
-- **Deployed score**: `ensemble_percentile_average`, Option B member set, nightly batch.
-- **Deployed thresholds**: 0.9510 (priority) / 0.8671 (standard). No block tier.
-- **Explanation layer**: both SHAP artifacts, served side by side, precomputed.
+- **Deployed score**: `ensemble_percentile_average` over the 8 classical models, Option B member set, nightly batch.
+- **Deployed thresholds**: 0.9627 (priority) / 0.8852 (standard). No block tier.
+- **Explanation layer**: Isolation Forest SHAP (sole explainability output), precomputed.
 - **Investigator surface**: Bank Transaction Fraud & Anomaly Detection, now reading this pipeline's artifacts (§7.2), with an honestly-rebuilt Account Scenario Simulator (§7.3).
 - **The three things Phase 16 must monitor hardest**, all identified above: (1) frequency-encoding drift as the device/merchant/IP population churns (§3.2), (2) the frozen training-derived constants that fail silently if recomputed (§9), and (3) silent member dropout in an ensemble whose score is defined by its member list (§9).

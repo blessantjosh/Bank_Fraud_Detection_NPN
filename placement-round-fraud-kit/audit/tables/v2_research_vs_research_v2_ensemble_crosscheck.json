@@ -1,0 +1,18 @@
+{
+  "ensemble_weighted_average": {
+    "spearman_rho": 0.5828,
+    "p_value": 1.6683542481520107e-228
+  },
+  "ensemble_rank_borda": {
+    "spearman_rho": 0.6027,
+    "p_value": 2.655847035421995e-248
+  },
+  "ensemble_percentile_average": {
+    "spearman_rho": 0.6021,
+    "p_value": 1.1491943923512845e-247
+  },
+  "ensemble_pca_stacking_proxy": {
+    "spearman_rho": 0.595,
+    "p_value": 1.9059730610610687e-240
+  }
+}

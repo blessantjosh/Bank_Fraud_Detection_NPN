@@ -8,22 +8,22 @@ Phase 7 (v2) -- Dimensionality Reduction on the teammate's 18-feature matrix
 2. UMAP: 2D projection of all 18 features.
 3. t-SNE: 2D projection of all 18 features (perplexity=30, matching a
    standard default; the in-house Phase 4 t-SNE used the same).
-4. Autoencoder: PyTorch Dense(8)->Dense(4)->bottleneck(3)->Dense(4)->Dense(8),
-   trained on RobustScaler-scaled features (train split only), matching the
-   in-house Phase 6 scaler recommendation. Reusable code lives in
-   autoencoder_utils.py; weights saved to artifacts_research_v2/autoencoder.pt
-   for reuse as "Model 9" in 07_models_deep.py.
 
-All 18 columns are used for PCA/UMAP/t-SNE/AE (not a 5-column subset) since,
+All 18 columns are used for PCA/UMAP/t-SNE (not a 5-column subset) since,
 unlike the in-house 46-column set, this is already the full, final feature
 matrix -- there is no separate "raw numeric features" vs. "full engineered
 set" distinction to draw here.
+
+No autoencoder/deep-learning step here (removed): this pipeline's model
+suite is now 8 classical unsupervised detectors + a Hybrid Ensemble
+(IF + LOF + GMM, majority vote) -- see 06_models_classical.py and
+07_models_deep.py. PCA/UMAP/t-SNE are independent of that change and are
+kept as-is.
 """
 import json
 import os
 import sys
 
-import joblib
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -32,14 +32,11 @@ import pandas as pd
 import seaborn as sns
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import RobustScaler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config_research_v2 import (
     ARTIFACTS_V2_DIR, FEATURE_COLS_V2, PLOTS_V2_DIR, RANDOM_STATE, load_features_v2,
 )
-from autoencoder_utils import reconstruction_errors, train_autoencoder
 
 sns.set_style("whitegrid")
 plt.rcParams.update({
@@ -138,86 +135,6 @@ def run_tsne(df):
     return emb
 
 
-# ------------------------------------------------------------ autoencoder
-def run_autoencoder(df):
-    X = df[FEATURE_COLS_V2].astype(float).values
-
-    idx_train, idx_val = train_test_split(np.arange(len(df)), test_size=0.2, random_state=RANDOM_STATE)
-    scaler = RobustScaler().fit(X[idx_train])
-    X_train = scaler.transform(X[idx_train])
-    X_val = scaler.transform(X[idx_val])
-    X_all = scaler.transform(X)
-
-    print(f"Training autoencoder: input_dim={X.shape[1]}, train n={len(idx_train)}, val n={len(idx_val)}")
-    model, history = train_autoencoder(
-        X_train, X_val, bottleneck_dim=3, epochs=200, lr=1e-3, batch_size=64, random_state=RANDOM_STATE
-    )
-
-    val_mse, val_mae, val_bottleneck, _ = reconstruction_errors(model, X_val)
-    train_mse, train_mae, _, _ = reconstruction_errors(model, X_train)
-    all_mse, all_mae, all_bottleneck, _ = reconstruction_errors(model, X_all)
-
-    final_metrics = {
-        "input_dim": X.shape[1],
-        "bottleneck_dim": 3,
-        "epochs": 200,
-        "n_train": int(len(idx_train)),
-        "n_val": int(len(idx_val)),
-        "train_mse_mean": round(float(train_mse.mean()), 6),
-        "train_mae_mean": round(float(train_mae.mean()), 6),
-        "val_mse_mean": round(float(val_mse.mean()), 6),
-        "val_mae_mean": round(float(val_mae.mean()), 6),
-        "val_mse_p95": round(float(np.percentile(val_mse, 95)), 6),
-        "val_mse_p99": round(float(np.percentile(val_mse, 99)), 6),
-        "val_mse_max": round(float(val_mse.max()), 6),
-    }
-    print(json.dumps(final_metrics, indent=2))
-
-    import torch
-    torch.save(model.state_dict(), os.path.join(ARTIFACTS_V2_DIR, "autoencoder.pt"))
-    joblib.dump(scaler, os.path.join(ARTIFACTS_V2_DIR, "autoencoder_scaler.pkl"))
-    with open(os.path.join(ARTIFACTS_V2_DIR, "autoencoder_config.json"), "w") as f:
-        json.dump({
-            "architecture": "input(18) -> 8 -> 4 -> bottleneck(3) -> 4 -> 8 -> output(18)",
-            "feature_cols": FEATURE_COLS_V2,
-            **final_metrics,
-        }, f, indent=2)
-
-    errors_df = pd.DataFrame({
-        "TransactionID": df["TransactionID"].values,
-        "AccountID": df["AccountID"].values,
-        "reconstruction_mse": all_mse,
-        "reconstruction_mae": all_mae,
-        "split": np.where(np.isin(np.arange(len(df)), idx_train), "train", "val"),
-    })
-    errors_df.to_csv(os.path.join(ARTIFACTS_V2_DIR, "autoencoder_reconstruction_errors.csv"), index=False)
-
-    with open(os.path.join(ARTIFACTS_V2_DIR, "autoencoder_training_history.json"), "w") as f:
-        json.dump(history, f, indent=2)
-
-    # bottleneck (3D) projected to 2D via PCA for visualization
-    pca2 = PCA(n_components=2, random_state=RANDOM_STATE)
-    bottleneck_2d = pca2.fit_transform(all_bottleneck)
-    fig, ax = plt.subplots(figsize=(7.5, 5.8))
-    sc = ax.scatter(bottleneck_2d[:, 0], bottleneck_2d[:, 1], s=12, alpha=0.6, c=all_mse, cmap="magma")
-    cbar = fig.colorbar(sc, ax=ax, shrink=0.85)
-    cbar.set_label("Reconstruction MSE")
-    ax.set_xlabel(f"Bottleneck PC1 ({pca2.explained_variance_ratio_[0]*100:.1f}% of bottleneck variance)")
-    ax.set_ylabel(f"Bottleneck PC2 ({pca2.explained_variance_ratio_[1]*100:.1f}% of bottleneck variance)")
-    ax.set_title("Autoencoder Bottleneck (3D, PCA-projected to 2D), Colored by Reconstruction Error")
-    savefig(fig, "autoencoder_bottleneck_2d_v2.png")
-
-    fig, ax = plt.subplots(figsize=(7, 5))
-    ax.plot(history["train_mse"], label="Train MSE", color="#2F6690")
-    ax.plot(history["val_mse"], label="Validation MSE", color="#D1495B")
-    ax.set_xlabel("Epoch"); ax.set_ylabel("MSE")
-    ax.set_title("Autoencoder Training Curve (v2, 18-Feature Input)")
-    ax.legend()
-    savefig(fig, "autoencoder_training_curve_v2.png")
-
-    return final_metrics
-
-
 def main():
     df = load_features_v2()
 
@@ -230,11 +147,8 @@ def main():
     print("\n=== Phase 7.3: t-SNE ===")
     run_tsne(df)
 
-    print("\n=== Phase 7.4: Autoencoder ===")
-    ae_summary = run_autoencoder(df)
-
     with open(os.path.join(ARTIFACTS_V2_DIR, "phase7_dim_reduction_summary.json"), "w") as f:
-        json.dump({"pca": pca_summary, "autoencoder": ae_summary}, f, indent=2)
+        json.dump({"pca": pca_summary}, f, indent=2)
     print(f"\nSaved: {os.path.join(ARTIFACTS_V2_DIR, 'phase7_dim_reduction_summary.json')}")
 
 

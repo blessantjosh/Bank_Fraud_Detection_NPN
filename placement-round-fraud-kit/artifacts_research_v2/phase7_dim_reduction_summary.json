@@ -42,19 +42,5 @@
     ],
     "n_components_for_80pct": 9,
     "n_components_for_90pct": 11
-  },
-  "autoencoder": {
-    "input_dim": 18,
-    "bottleneck_dim": 3,
-    "epochs": 200,
-    "n_train": 2009,
-    "n_val": 503,
-    "train_mse_mean": 0.285775,
-    "train_mae_mean": 0.402518,
-    "val_mse_mean": 0.296569,
-    "val_mae_mean": 0.410464,
-    "val_mse_p95": 0.555129,
-    "val_mse_p99": 0.633922,
-    "val_mse_max": 0.96325
   }
 }

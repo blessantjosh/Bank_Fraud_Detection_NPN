@@ -1,19 +1,22 @@
 """
 Phase 12 (v2) -- Ensemble Anomaly Scoring, on the teammate's 18-feature matrix.
 
-Combines 11 of the 12 Phase 8 (v2) models' scores into 4 unsupervised
+Combines the 8 classical Phase 8 (v2) models' scores into 4 unsupervised
 ensemble strategies, mirroring src_research/12_ensemble_scoring.py 1:1.
-The Hybrid Ensemble (Model 12) is deliberately EXCLUDED as an input -- it is
-itself already a majority vote of Isolation Forest + LOF + Autoencoder
-(Phase 8 v2 Section 2.12), so folding it back in would double-count those
-three detectors relative to the other 8. Its vote_count is retained as a
+The Hybrid Ensemble (Model 9) is deliberately EXCLUDED as an input -- it is
+itself already a majority vote of Isolation Forest + LOF + GMM (Phase 8 v2
+Section 2.9), so folding it back in would double-count those three
+detectors relative to the other 5. Its vote_count is retained as a
 comparison point only.
 
-The 11 models combined: isolation_forest, lof, ocsvm, elliptic_envelope,
-dbscan, hdbscan, kmeans, gmm, autoencoder, vae, lstm_ae.
+The 8 models combined: isolation_forest, lof, ocsvm, elliptic_envelope,
+dbscan, hdbscan, kmeans, gmm. (No deep-learning model remains to combine --
+Autoencoder/VAE/LSTM-AE were removed along with the Hybrid Ensemble's
+former reliance on the Autoencoder.)
 
-LSTM-AE is NaN for 110/2,512 rows (accounts with <3 transactions, Phase 8 v2
-Section 2.11) -- every strategy below is NaN-aware.
+None of these 8 models produce NaN scores (unlike the removed LSTM-AE,
+which only scored 2,402/2,512 rows) -- every strategy below is still
+written NaN-aware for robustness, but in practice S has no missing values.
 
 Cross-cutting constraint, checked and stated here (per task instructions,
 rather than left to surface later): DBSCAN and HDBSCAN have no native
@@ -61,7 +64,7 @@ plt.rcParams.update({
 
 TOP_PCT = 0.05
 BASE_MODELS = ["isolation_forest", "lof", "ocsvm", "elliptic_envelope", "dbscan",
-               "hdbscan", "kmeans", "gmm", "autoencoder", "vae", "lstm_ae"]
+               "hdbscan", "kmeans", "gmm"]
 
 
 def savefig(fig, name):
@@ -83,15 +86,10 @@ def top_pct_flag(score, pct=TOP_PCT):
 
 def load_data():
     scores = pd.read_csv(os.path.join(ARTIFACTS_V2_DIR, "model_scores_all.csv"))
-    lstm_applicable = (scores["lstm_ae_applicable"] == 1).values
     S = np.full((len(scores), len(BASE_MODELS)), np.nan)
     for j, m in enumerate(BASE_MODELS):
-        col = scores[f"score_{m}"].values.astype(float)
-        if m == "lstm_ae":
-            col = col.copy()
-            col[~lstm_applicable] = np.nan
-        S[:, j] = col
-    return scores, S, lstm_applicable
+        S[:, j] = scores[f"score_{m}"].values.astype(float)
+    return scores, S
 
 
 def zscore_columns(S):
@@ -184,7 +182,7 @@ def pca_stacking(Z, consensus_ref):
 
 def main():
     print("=== Phase 12 (v2): Ensemble Anomaly Scoring ===")
-    scores, S, lstm_applicable = load_data()
+    scores, S = load_data()
     Z = zscore_columns(S)
 
     print("\n--- Strategy 1: Weighted average (consensus-weighted) ---")
@@ -208,7 +206,7 @@ def main():
             "weights": weights, "disagreements": disagreements,
             "pca_explained_variance_ratio_pc1": round(explained_var, 4),
             "note": ("Weights = 1 / (mean pairwise disagreement + 0.05), normalized to sum to 1; "
-                     "disagreement_m = mean over the other 10 models of (1 - Spearman rho)/2. Source: "
+                     "disagreement_m = mean over the other 7 models of (1 - Spearman rho)/2. Source: "
                      "artifacts_research_v2/model_pairwise_spearman.csv (Phase 8 v2, not recomputed)."),
         }, f, indent=2, default=float)
     print(f"Saved: {os.path.join(ARTIFACTS_V2_DIR, 'ensemble_weights_v2.json')}")
@@ -274,7 +272,7 @@ def main():
     names_sorted = sorted(weights, key=lambda m: weights[m])
     ax.barh(names_sorted, [weights[n] for n in names_sorted], color="#2F6690")
     ax.set_xlabel("Consensus weight (normalized, sums to 1)")
-    ax.set_title("Strategy 1 Weights (v2): Inverse Mean Disagreement with the Other 10 Models")
+    ax.set_title("Strategy 1 Weights (v2): Inverse Mean Disagreement with the Other 7 Models")
     savefig(fig, "ensemble_weights_barplot_v2.png")
 
     # ---------------- Cross-check against v1's vote_count and hybrid_vote_count ----------------

@@ -2,27 +2,25 @@
 Phase 10 (v2) -- Evaluation Framework, on the teammate's 18-feature matrix.
 
 Mirrors src_research/10_evaluation.py's methodology 1:1. No fraud label
-exists anywhere in this project, so "evaluation" here means the same three
+exists anywhere in this project, so "evaluation" here means the same
 label-free things, plus one manual read:
   A. Internal cluster-validity metrics (Silhouette, Davies-Bouldin,
-     Calinski-Harabasz) for each of the 12 models' implied binary partition
+     Calinski-Harabasz) for each of the 9 models' implied binary partition
      (top-5%-by-score flagged vs. rest), computed on the RobustScaler-scaled
      18-feature space every model in Phase 8 (v2) shares.
-  B. Stability/robustness: for Isolation Forest, LOF, and the Autoencoder,
-     refit on 5 bootstrap resamples of the training split and measure how
-     consistent the top-5%-flagged set is across runs (mean pairwise
-     Jaccard).
-  C. Reconstruction-error metrics for AE/VAE/LSTM-AE -- consolidated from
-     Phase 7/8 (v2)'s already-computed numbers, not recomputed.
-  D. A manual business-evaluation pass over real top-1/2/5/10% transactions
+  B. Stability/robustness: for Isolation Forest and LOF, refit on 5
+     bootstrap resamples of the training split and measure how consistent
+     the top-5%-flagged set is across runs (mean pairwise Jaccard). (No
+     deep-learning model remains to include here -- the Autoencoder
+     stability check was removed along with the model itself.)
+  C. A manual business-evaluation pass over real top-1/2/5/10% transactions
      (with real TransactionID/AccountID and raw dollar values joined back
      from data/bank_transactions_data_2.csv), reasoned against Phase 1's
      scenario table, honest about which ones do and do not look like
      plausible fraud.
 
 Outputs: artifacts_research_v2/{internal_validity_metrics_v2.csv,
-stability_bootstrap_jaccard_v2.csv, reconstruction_metrics_summary_v2.json,
-business_evaluation_examples_v2.json}.
+stability_bootstrap_jaccard_v2.csv, business_evaluation_examples_v2.json}.
 Plots: research_v2/plots/{internal_validity_comparison_v2.png,
 stability_jaccard_comparison_v2.png}.
 """
@@ -48,7 +46,6 @@ from config_research_v2 import (
     ARTIFACTS_V2_DIR, DATA_DIR, FEATURE_COLS_V2, MODELS_V2_DIR, PLOTS_V2_DIR, RANDOM_STATE, RAW_CSV,
     load_features_v2,
 )
-from autoencoder_utils import reconstruction_errors, train_autoencoder
 
 sns.set_style("whitegrid")
 plt.rcParams.update({
@@ -58,7 +55,7 @@ plt.rcParams.update({
 
 TOP_PCT = 0.05
 MODEL_NAMES = ["isolation_forest", "lof", "ocsvm", "elliptic_envelope", "dbscan",
-               "hdbscan", "kmeans", "gmm", "autoencoder", "vae", "lstm_ae", "hybrid_ensemble"]
+               "hdbscan", "kmeans", "gmm", "hybrid_ensemble"]
 
 
 def savefig(fig, name):
@@ -86,18 +83,17 @@ def load_everything():
 
     scores = pd.read_csv(os.path.join(ARTIFACTS_V2_DIR, "model_scores_all.csv"))
     assert (scores["TransactionID"].values == df["TransactionID"].values).all()
-    lstm_applicable = (scores["lstm_ae_applicable"] == 1).values
-    return df, feature_cols, X, X_train, X_all, idx_train, idx_val, scaler, scores, lstm_applicable
+    return df, feature_cols, X, X_train, X_all, idx_train, idx_val, scaler, scores
 
 
 # ------------------------------------------------------- A. Internal validity metrics
-def internal_validity_metrics(scores, X_all, lstm_applicable):
+def internal_validity_metrics(scores, X_all):
     score_col_for = {n: (f"score_{n}" if n != "hybrid_ensemble" else "hybrid_vote_count") for n in MODEL_NAMES}
     rows = []
     for name in MODEL_NAMES:
         col = score_col_for[name]
         s = scores[col].values.astype(float)
-        mask = lstm_applicable if name == "lstm_ae" else np.ones(len(scores), dtype=bool)
+        mask = np.ones(len(scores), dtype=bool)
         s_m = s[mask]
         X_m = X_all[mask]
         flag = top_pct_partition(s_m)
@@ -170,18 +166,6 @@ def bootstrap_jaccard_lof(X_train, X_all, n_runs=5):
     return flags
 
 
-def bootstrap_jaccard_ae(X_train, X_val, X_all, n_runs=5):
-    flags = []
-    for seed in range(n_runs):
-        rng = np.random.RandomState(3000 + seed)
-        boot_idx = rng.choice(len(X_train), size=len(X_train), replace=True)
-        model, _ = train_autoencoder(X_train[boot_idx], X_val, bottleneck_dim=3, epochs=200,
-                                       lr=1e-3, batch_size=64, random_state=seed, verbose=False)
-        mse, _, _, _ = reconstruction_errors(model, X_all)
-        flags.append(top_pct_partition(mse))
-    return flags
-
-
 def mean_pairwise_jaccard(flags):
     n = len(flags)
     vals = []
@@ -194,8 +178,8 @@ def mean_pairwise_jaccard(flags):
     return float(np.mean(vals)), vals
 
 
-def run_stability(X_train, X_val, X_all):
-    print("\n=== Stability (v2): 5 bootstrap resamples each for IF, LOF, Autoencoder ===")
+def run_stability(X_train, X_all):
+    print("\n=== Stability (v2): 5 bootstrap resamples each for IF, LOF ===")
     t0 = time.time()
     if_flags = bootstrap_jaccard_if(X_train, X_all)
     if_jaccard, if_pairs = mean_pairwise_jaccard(if_flags)
@@ -206,11 +190,6 @@ def run_stability(X_train, X_val, X_all):
     lof_jaccard, lof_pairs = mean_pairwise_jaccard(lof_flags)
     print(f"  LOF: mean pairwise Jaccard = {lof_jaccard:.4f}  ({time.time()-t0:.1f}s)")
 
-    t0 = time.time()
-    ae_flags = bootstrap_jaccard_ae(X_train, X_val, X_all)
-    ae_jaccard, ae_pairs = mean_pairwise_jaccard(ae_flags)
-    print(f"  Autoencoder: mean pairwise Jaccard = {ae_jaccard:.4f}  ({time.time()-t0:.1f}s)")
-
     rows = [
         {"model": "isolation_forest", "n_bootstrap_runs": 5,
          "mean_pairwise_jaccard_top5pct": round(if_jaccard, 4),
@@ -220,10 +199,6 @@ def run_stability(X_train, X_val, X_all):
          "mean_pairwise_jaccard_top5pct": round(lof_jaccard, 4),
          "min_pairwise_jaccard": round(float(np.min(lof_pairs)), 4),
          "max_pairwise_jaccard": round(float(np.max(lof_pairs)), 4)},
-        {"model": "autoencoder", "n_bootstrap_runs": 5,
-         "mean_pairwise_jaccard_top5pct": round(ae_jaccard, 4),
-         "min_pairwise_jaccard": round(float(np.min(ae_pairs)), 4),
-         "max_pairwise_jaccard": round(float(np.max(ae_pairs)), 4)},
     ]
     out = pd.DataFrame(rows)
     out.to_csv(os.path.join(ARTIFACTS_V2_DIR, "stability_bootstrap_jaccard_v2.csv"), index=False)
@@ -235,7 +210,7 @@ def run_stability(X_train, X_val, X_all):
     mins = out["min_pairwise_jaccard"].tolist()
     maxs = out["max_pairwise_jaccard"].tolist()
     yerr = [[m - lo for m, lo in zip(means, mins)], [hi - m for m, hi in zip(means, maxs)]]
-    ax.bar(names, means, color=["#2F6690", "#D1495B", "#4C956C"], yerr=yerr, capsize=6)
+    ax.bar(names, means, color=["#2F6690", "#D1495B"], yerr=yerr, capsize=6)
     ax.set_ylabel("Mean pairwise Jaccard overlap, top-5%-flagged set\n(5 bootstrap resamples of the training split)")
     ax.set_title("Flagging Stability Across Retrains (v2)\n(\"if we retrained tomorrow, would we flag the same transactions?\")")
     ax.set_ylim(0, 1)
@@ -244,61 +219,7 @@ def run_stability(X_train, X_val, X_all):
     return out
 
 
-# ------------------------------------------------------- C. Reconstruction metrics
-def consolidate_reconstruction_metrics():
-    ae_err = pd.read_csv(os.path.join(ARTIFACTS_V2_DIR, "autoencoder_reconstruction_errors.csv"))
-    with open(os.path.join(ARTIFACTS_V2_DIR, "autoencoder_config.json")) as f:
-        ae_cfg = json.load(f)
-    with open(os.path.join(ARTIFACTS_V2_DIR, "vae_config.json")) as f:
-        vae_cfg = json.load(f)
-    with open(os.path.join(ARTIFACTS_V2_DIR, "lstm_ae_config.json")) as f:
-        lstm_cfg = json.load(f)
-
-    train_mask = ae_err["split"] == "train"
-    val_mask = ae_err["split"] == "val"
-    summary = {
-        "autoencoder": {
-            "train_mse_mean": round(float(ae_err.loc[train_mask, "reconstruction_mse"].mean()), 6),
-            "val_mse_mean": round(float(ae_err.loc[val_mask, "reconstruction_mse"].mean()), 6),
-            "train_mae_mean": round(float(ae_err.loc[train_mask, "reconstruction_mae"].mean()), 6),
-            "val_mae_mean": round(float(ae_err.loc[val_mask, "reconstruction_mae"].mean()), 6),
-            "val_mse_p95": round(float(ae_cfg.get("val_mse_p95", np.percentile(ae_err.loc[val_mask, "reconstruction_mse"], 95))), 6),
-            "val_mse_p99": ae_cfg["val_mse_p99"],
-            "source": "artifacts_research_v2/autoencoder_reconstruction_errors.csv + autoencoder_config.json (Phase 7 v2, not recomputed)",
-        },
-        "vae": {
-            "train_recon_mse_mean": vae_cfg["train_recon_mse_mean"],
-            "val_recon_mse_mean": vae_cfg["val_recon_mse_mean"],
-            "val_recon_mse_p95": vae_cfg["val_recon_mse_p95"],
-            "val_recon_mse_p99": vae_cfg["val_recon_mse_p99"],
-            "val_recon_mse_max": vae_cfg["val_recon_mse_max"],
-            "val_kl_mean": vae_cfg["val_kl_mean"],
-            "source": "artifacts_research_v2/vae_config.json (Phase 8 v2, not recomputed)",
-        },
-        "lstm_ae": {
-            "train_mse_mean": lstm_cfg["train_mse_mean"],
-            "val_mse_mean": lstm_cfg["val_mse_mean"],
-            "applicable_rows": lstm_cfg["applicable_rows"],
-            "applicable_pct": lstm_cfg["applicable_pct"],
-            "source": "artifacts_research_v2/lstm_ae_config.json (Phase 8 v2, not recomputed)",
-        },
-        "comparative_note": (
-            f"Autoencoder val MSE ({ae_cfg['val_mse_mean']:.4f}) < VAE val MSE "
-            f"({vae_cfg['val_recon_mse_mean']:.4f}) < LSTM-AE val MSE ({lstm_cfg['val_mse_mean']:.4f}) -- "
-            "the plain feedforward autoencoder reconstructs most precisely of the three; the VAE trades "
-            "some precision for its regularized latent space; the LSTM-AE reconstructs markedly less "
-            "precisely and, per Phase 8 (v2) Section 2.11, its validation MSE actually rises after "
-            "epoch ~50 -- a genuine overfitting signature on this feature set's short, sparse "
-            "per-account sequences, reported honestly rather than smoothed over."
-        ),
-    }
-    with open(os.path.join(ARTIFACTS_V2_DIR, "reconstruction_metrics_summary_v2.json"), "w") as f:
-        json.dump(summary, f, indent=2, default=float)
-    print(f"Saved: {os.path.join(ARTIFACTS_V2_DIR, 'reconstruction_metrics_summary_v2.json')}")
-    return summary
-
-
-# ------------------------------------------------------- D. Business evaluation
+# ------------------------------------------------------- C. Business evaluation
 def business_evaluation(df, scores, internal_metrics_df):
     ranked = internal_metrics_df.dropna(subset=["silhouette"]).sort_values("silhouette", ascending=False)
     top_by_silhouette = ranked.iloc[0]["model"]
@@ -376,19 +297,14 @@ def business_evaluation(df, scores, internal_metrics_df):
 
 def main():
     print("=== Phase 10 (v2): Evaluation Framework ===")
-    (df, feature_cols, X, X_train, X_all, idx_train, idx_val, scaler,
-     scores, lstm_applicable) = load_everything()
-    X_val = X_all[idx_val]
+    (df, feature_cols, X, X_train, X_all, idx_train, idx_val, scaler, scores) = load_everything()
 
     print("\n--- A. Internal validity metrics (Silhouette / Davies-Bouldin / Calinski-Harabasz) ---")
-    internal_df = internal_validity_metrics(scores, X_all, lstm_applicable)
+    internal_df = internal_validity_metrics(scores, X_all)
 
-    stability_df = run_stability(X_train, X_val, X_all)
+    stability_df = run_stability(X_train, X_all)
 
-    print("\n--- C. Reconstruction metrics consolidation ---")
-    recon_summary = consolidate_reconstruction_metrics()
-
-    print("\n--- D. Business evaluation ---")
+    print("\n--- C. Business evaluation ---")
     tiers, examples = business_evaluation(df, scores, internal_df)
 
     print("\nPhase 10 (v2) complete.")

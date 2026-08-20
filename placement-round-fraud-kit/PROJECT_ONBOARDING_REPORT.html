@@ -1,0 +1,376 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Project Onboarding Report</title>
+<style>
+  @page { size: A4; margin: 20mm 16mm; }
+  body { font-family: "Segoe UI", Calibri, Arial, sans-serif; font-size: 10.5pt; line-height: 1.5; color: #1a1a1a; }
+  h1 { font-size: 20pt; border-bottom: 2px solid #2b3a55; padding-bottom: 6px; margin-top: 0; }
+  h2 { font-size: 15pt; border-bottom: 1px solid #ccc; padding-bottom: 3px; margin-top: 28px; color: #2b3a55; }
+  h3 { font-size: 12.5pt; margin-top: 20px; color: #2b3a55; }
+  h4 { font-size: 11pt; margin-top: 14px; }
+  pre { background: #f4f5f7; border: 1px solid #ddd; border-radius: 4px; padding: 10px 12px;
+         font-family: Consolas, "Courier New", monospace; font-size: 8.7pt; line-height: 1.4;
+         white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere; }
+  code { font-family: Consolas, "Courier New", monospace; background: #f4f5f7; padding: 1px 4px; border-radius: 3px; font-size: 9pt; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 9pt; }
+  th, td { border: 1px solid #ccc; padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { background: #eef1f6; }
+  blockquote { border-left: 3px solid #2b3a55; margin: 10px 0; padding: 2px 14px; color: #444; background: #f8f9fb; }
+  hr { border: none; border-top: 1px solid #ccc; margin: 22px 0; }
+  a { color: #2b5ba5; }
+  li { margin-bottom: 3px; }
+  strong { color: #1a1a1a; }
+</style>
+</head><body>
+<h1 id="project-onboarding-report-placement-round-fraud-detection-kit">Project Onboarding Report — Placement-Round Fraud Detection Kit</h1>
+<p><strong>A note before anything else.</strong> This report is written against the project's last clean, committed state (git <code>HEAD</code>, commit <code>af73c0c</code>). The working directory right now is mid-merge with your teammate's branch (<code>origin/Joshva_final-model</code>) and has unresolved conflicts in the dashboard frontend files plus ~118 files temporarily missing from disk. None of that changes what's <em>supposed</em> to be there — this report describes the real, designed system so you have a clean map to work from once the merge is resolved. Where I couldn't verify something from code, I say so explicitly rather than guessing.</p>
+<p><strong>One structural fact that changes how you should read everything below:</strong> this is not one project — it's <strong>three complete pipelines</strong> sharing one raw dataset. Conflating them is the single easiest way to misunderstand this repo, so every section below keeps them visually separate.</p>
+<hr />
+<h2 id="1-project-folder-structure">1. Project Folder Structure</h2>
+<pre><code>placement-round-fraud-kit/
+│
+├── data/
+│   └── bank_transactions_data_2.csv        ← the ONE raw dataset every pipeline reads
+│
+├── src/                                     ← PIPELINE 1: supervised (v1)
+│   ├── config.py                            shared paths + constants
+│   ├── fe_utils.py                          feature-engineering logic, training AND live-scoring
+│   ├── 01_feature_engineering.py            stage 1
+│   ├── 02_anomaly_ensemble.py               stage 2
+│   ├── 03_confidence_labeling.py            stage 3
+│   ├── 04_balancing.py                      stage 4
+│   ├── 04b_cross_validation.py              stage 4b
+│   ├── 05_train_model.py                    stage 5
+│   └── 06_evaluation.py                     stage 6
+├── artifacts/                               ← everything the v1 pipeline produced
+│
+├── src_research/                            ← PIPELINE 2: unsupervised, in-house 46-feature set
+│   ├── config_research.py, 01…13_*.py       17-phase build, one script per phase
+│   ├── autoencoder_utils.py, vae_utils.py   reusable PyTorch model classes
+├── artifacts_research/                      everything Pipeline 2 produced
+├── research/                                15 human-readable phase reports (01…15_*.md)
+│
+├── src_research_v2/                         ← PIPELINE 3: unsupervised, client 18-feature set
+│   ├── config_research_v2.py, 04…13_*.py    same 12-model methodology as Pipeline 2, different features
+│   ├── autoencoder_utils.py, vae_utils.py   (mirrors Pipeline 2's classes, sized for 18 features)
+├── artifacts_research_v2/                   everything Pipeline 3 produced
+├── research_v2/                             15 phase reports, this pipeline's version
+│
+├── notebooks/
+│   └── Fraud_Anomaly_Detection_Pipeline.ipynb   all 17 phases as one runnable notebook (Colab-friendly)
+│
+├── dashboard/                               ← THE ONLY PRODUCTION SURFACE — serves Pipeline 3 live
+│   ├── backend/api_server.py                FastAPI app: the entire backend in one file
+│   ├── backend/queue_state.json             persisted investigator decisions
+│   ├── backend/upload_history.json          persisted CSV-upload history
+│   └── frontend/{index.html, css/, js/}     plain HTML/CSS/JS, no framework, no build step
+│
+├── audit/                                   a full model-audit report I built earlier this session
+│   ├── MODEL_AUDIT_REPORT.md, generate_heatmaps.py, heatmaps/, tables/
+│
+└── README.md, DOCUMENTATION.md, FILE_GUIDE.md, LIMITATIONS.md,
+    ML_AUDIT_AFTER_FIX.md, PRESENTATION_MODEL_SUMMARY.md      ← root-level documentation
+</code></pre>
+<h3 id="the-files-that-matter-most-explained">The files that matter most, explained</h3>
+<p><strong><code>data/bank_transactions_data_2.csv</code></strong> — Why it exists: the single source of truth. 2,512 transactions, 495 accounts, 16 raw columns, <strong>no fraud label anywhere</strong>. That last fact is the reason this whole project looks the way it does — three pipelines exist because there's no ground truth to train one clean supervised model against.</p>
+<p><strong><code>src/fe_utils.py</code></strong> — Why it exists: this is the file that makes training and live-scoring consistent. It's split into four composable stages, each doing one job:
+- <code>add_causal_features(df)</code> — per-account features that only ever look at <em>strictly earlier</em> rows of the same account (safe to compute before any split exists, because moving the split boundary later can't change a value that only depends on the past).
+- <code>fit_global_stats(df)</code> — fits cross-transaction lookups (type averages, device/IP/merchant popularity counts) using <strong>only the rows passed in</strong>. Called with training rows only during model-building.
+- <code>apply_global_stats(df, stats)</code> — applies an already-fitted <code>stats</code> dict to <em>any</em> dataframe (val, test, or a single brand-new transaction).
+- <code>finalize_matrix(df, encoders=None)</code> — drops identifier columns, encodes categoricals, keeps <code>TransactionID</code> as a non-modeled join key.
+- <code>transform_new(txn, reference)</code> / <code>transform_batch_new(df, reference)</code> — the <strong>live-scoring path</strong>. These call the exact same <code>_engineer_new_row()</code> logic used at training time, so a transaction scored today and a transaction the model was trained on are engineered identically. This is <em>the</em> file that connects "how the model was built" to "how it's used after."</p>
+<p><strong><code>dashboard/backend/api_server.py</code></strong> — Why it exists: this is the entire backend. One 1,200+ line file: loads every Pipeline 3 artifact once at startup into an in-memory <code>STATE</code> dict (<code>_load_state()</code>, line 223), runs a self-check that reloaded models reproduce the published scores, then exposes ~15 REST endpoints, and finally mounts the frontend directory as static files (<code>app.mount("/", StaticFiles(...))</code>, the very last line). <strong>Who uses it:</strong> the browser, via <code>dashboard/frontend/js/api.js</code>. <strong>What it connects to:</strong> <code>artifacts_research_v2/*</code> (read-only, never retrains), plus <code>src/fe_utils.py</code> + <code>artifacts/xgb_model_best.json</code> for the one supervised-scoring code path (CSV upload in "raw format").</p>
+<p><strong><code>dashboard/frontend/js/app.js</code></strong> — Why it exists: all of the UI's behavior — page navigation, every API call, every table/form. No framework; DOM elements are looked up by ID and populated directly. <strong>Who uses it:</strong> loaded by <code>index.html</code>. <strong>What it connects to:</strong> <code>api.js</code> (all backend calls go through there), <code>charts.js</code> (all visualizations).</p>
+<p><strong>Root docs</strong> — <code>README.md</code> (quick start), <code>FILE_GUIDE.md</code> (a file-by-file index — written <em>before</em> Pipeline 3/<code>research_v2/</code> existed, so it's incomplete now), <code>ML_AUDIT_AFTER_FIX.md</code> (a full leakage audit of Pipeline 1 — what leaked, why, and exactly how it was fixed), <code>LIMITATIONS.md</code> (the honest-caveats slide content for Pipeline 1), <code>DOCUMENTATION.md</code> (Pipeline 1's stage-by-stage technical writeup).</p>
+<h3 id="if-i-open-this-project-for-the-first-time-these-are-the-files-i-should-understand-first">"If I open this project for the first time, these are the files I should understand first"</h3>
+<ol>
+<li><strong><code>data/bank_transactions_data_2.csv</code></strong> — everything starts here; know its shape and that it has no label.</li>
+<li><strong><code>ML_AUDIT_AFTER_FIX.md</code></strong> — explains <em>why</em> the pipeline is architected the way it is (chronological split, train-only fitting) — read this before the code, not after.</li>
+<li><strong><code>src/fe_utils.py</code></strong> — the training/live-scoring contract; understand the four-stage split before reading any pipeline script.</li>
+<li><strong><code>src/config.py</code></strong> — every path and constant in one place; tells you what artifact each stage produces.</li>
+<li><strong><code>dashboard/backend/api_server.py</code></strong> — the one file that ties everything together into something runnable.</li>
+<li><strong><code>research_v2/15_final_research_report.md</code></strong> — the standalone executive summary of the production pipeline (Pipeline 3); reads on its own.</li>
+<li><strong><code>src_research_v2/12_ensemble_scoring.py</code></strong> — how 10 independent model scores become one number.</li>
+<li><strong><code>dashboard/frontend/js/app.js</code></strong> — how the UI turns those numbers into something a person looks at.</li>
+<li><strong><code>src_research_v2/config_research_v2.py</code></strong> — the exact 18-feature list and shared constants for Pipeline 3.</li>
+<li><strong><code>FILE_GUIDE.md</code></strong> — useful as an index, but cross-check it against the actual folder listing (it predates Pipeline 3).</li>
+</ol>
+<hr />
+<h2 id="2-system-architecture">2. System Architecture</h2>
+<p><strong>Three pipelines, one dashboard.</strong> Only Pipeline 3 (research_v2) is wired into anything a user actually touches. Pipelines 1 and 2 are real, fully-executed research builds whose outputs live in the repo but aren't served live.</p>
+<pre><code>┌─────────────────────────────────────────────────────────────────────┐
+│                    data/bank_transactions_data_2.csv                 │
+│              (2,512 transactions, 495 accounts, NO LABEL)            │
+└───────────────┬───────────────────┬───────────────────┬─────────────┘
+                 │                   │                   │
+                 ▼                   ▼                   ▼
+        PIPELINE 1 (src/)   PIPELINE 2 (src_research/) PIPELINE 3 (src_research_v2/)
+        supervised,          unsupervised,               unsupervised,
+        20 features           46 features                18 features
+        4 detectors → vote    12 models →                12 models →
+        → pseudo-label →      4 ensemble strategies       4 ensemble strategies
+        XGBoost/RF                                        ★ THE ONE THAT'S LIVE
+                 │                   │                   │
+                 ▼                   ▼                   ▼
+          artifacts/          artifacts_research/  artifacts_research_v2/
+                                                           │
+                                                           ▼
+                                          dashboard/backend/api_server.py
+                                          (loads artifacts_research_v2/* once at
+                                           startup — never retrains, never
+                                           recomputes SHAP)
+                                                           │
+                                                    FastAPI REST API
+                                                    (~15 endpoints, JSON)
+                                                           │
+                                          dashboard/frontend/ (index.html +
+                                          api.js + app.js + charts.js)
+                                                           │
+                                                        BROWSER
+</code></pre>
+<p><strong>Frontend:</strong> plain HTML/CSS/JS. No React/Vue, no bundler, no build step — <code>index.html</code> loads <code>&lt;script&gt;</code> tags directly. <code>app.js</code> owns all state and DOM updates; <code>api.js</code> is a thin <code>fetch()</code> wrapper; <code>charts.js</code> draws every chart as hand-built inline SVG (no charting library).</p>
+<p><strong>Backend:</strong> a single FastAPI app (<code>api_server.py</code>). No database — every "table" is a CSV/JSON file read from <code>artifacts_research_v2/</code> at process startup and held in memory (<code>STATE</code>). The two exceptions that persist across restarts are <code>queue_state.json</code> (investigator Approve/Escalate/Block decisions) and <code>upload_history.json</code> (past CSV-upload runs) — both plain JSON files written to disk, not a database.</p>
+<p><strong>ML models:</strong> 10 active unsupervised anomaly models (research_v2), combined by percentile aggregation into one score. Isolation Forest is the only model with a computed SHAP explanation. A separate, disconnected supervised model (XGBoost, from Pipeline 1) is loaded <em>only</em> for the one CSV-upload code path that accepts raw (non-preprocessed) transaction data.</p>
+<p><strong>Dataset:</strong> one CSV, read three different ways by three different feature-engineering scripts, producing three different feature matrices (20 / 46 / 18 columns) — this is the single most important thing to keep straight about this repo.</p>
+<p><strong>API:</strong> REST, JSON, same-origin (the backend serves the frontend itself, so there's no CORS configuration and no separate API base URL).</p>
+<p><strong>Database:</strong> none. Confirmed by reading every import in <code>api_server.py</code> — no SQL driver, no ORM. State = files on disk, loaded into memory at boot.</p>
+<p><strong>Why each connection exists:</strong>
+- <strong>Frontend → API, not Frontend → files directly:</strong> the frontend never reads a CSV/pickle itself; it always goes through an endpoint, because the backend is what guarantees row-alignment across the raw data, the feature matrix, and every score file (there's a startup assertion that all of these line up by <code>TransactionID</code> — see <code>_load_state()</code>).
+- <strong>API → <code>artifacts_research_v2/</code>, not API → <code>src_research_v2/</code>:</strong> the backend never imports or runs the pipeline scripts at request time — it only reads their <em>output</em>. This is deliberate: scoring 2,512 transactions live on every page load would be slow and would defeat the whole point of precomputing SHAP once. The one place live computation happens is the Manual Entry / Upload path, and even there it loads a pre-trained model file (<code>isolation_forest.pkl</code>), it doesn't retrain anything.
+- <strong>Pipeline 1 → dashboard, but only for raw-CSV upload:</strong> Pipeline 3's 18 features can't be honestly computed from a brand-new transaction with no context (they rely on population-wide frequency counts). Pipeline 1's feature set <em>can</em> be computed for one new transaction (<code>fe_utils.transform_new</code>), because its features are either raw fields or strictly-causal per-account history. So raw-format CSV upload deliberately routes to the older, smaller Pipeline 1 model instead.</p>
+<hr />
+<h2 id="3-ml-ai-pipeline-deep-dive">3. ML / AI Pipeline — Deep Dive</h2>
+<h3 id="31-which-stages-actually-exist">3.1 Which stages actually exist</h3>
+<p>All three pipelines share this shape; only the boxes differ:</p>
+<pre><code>RAW DATA → DATA CLEANING/QUALITY → PREPROCESSING → FEATURE ENGINEERING →
+FEATURE SELECTION → MODEL TRAINING → MODEL EVALUATION → MODEL SAVING →
+MODEL LOADING → PREDICTION
+</code></pre>
+<p>There is no separate "feature selection" step with elimination — all engineered features are kept and fed to every model; "selection" here means <em>which scaler/encoding</em> was chosen (documented, measured comparisons — see <code>research_v2/05_feature_selection_and_preprocessing.md</code>), not dropping features.</p>
+<h3 id="32-data">3.2 Data</h3>
+<ul>
+<li><strong>Dataset:</strong> <code>data/bank_transactions_data_2.csv</code>, 2,512 rows, 16 raw columns, 0 missing values, 0 duplicates.</li>
+<li><strong>Target:</strong> <strong>none.</strong> No fraud label exists anywhere in this dataset. This single fact is why Pipelines 2 and 3 are unsupervised, and why Pipeline 1 has to <em>manufacture</em> a pseudo-label before it can train a classifier.</li>
+<li><strong>Important raw fields:</strong> <code>TransactionAmount</code>, <code>AccountBalance</code>, <code>LoginAttempts</code>, <code>TransactionDuration</code>, <code>CustomerAge</code>, plus identifiers (<code>AccountID</code>, <code>DeviceID</code>, <code>IP Address</code>, <code>MerchantID</code>) that get converted into counts/frequencies rather than used raw. <code>PreviousTransactionDate</code> is present but broken (an export artifact — all values cluster within minutes of one timestamp) and is dropped by every pipeline.</li>
+</ul>
+<h3 id="33-preprocessing">3.3 Preprocessing</h3>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Pipeline 1</th>
+<th>Pipelines 2 &amp; 3</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Missing values</td>
+<td>none present</td>
+<td>none present</td>
+</tr>
+<tr>
+<td>Scaling</td>
+<td><code>StandardScaler</code>, fit on train fold only</td>
+<td><code>RobustScaler</code>, fit on train split only — chosen empirically because it's measurably less sensitive to the top-1% outlier rows than <code>StandardScaler</code>/<code>MinMaxScaler</code></td>
+</tr>
+<tr>
+<td>Encoding</td>
+<td>one-hot (low-cardinality) + label-encode (high-cardinality, e.g. <code>Location</code>)</td>
+<td>frequency-encoding for <code>Location</code> (measured to beat label encoding, avoids the extra columns one-hot would add)</td>
+</tr>
+<tr>
+<td>Outlier handling</td>
+<td>none removed — outliers are exactly what the models are looking for</td>
+<td>same — never removed, only measured (5 different detection methods compared side by side in Pipeline 2's Phase 3)</td>
+</tr>
+<tr>
+<td>Imbalance handling</td>
+<td>SMOTE <strong>or</strong> class-weighting, compared head-to-head, applied to the training fold only</td>
+<td>not applicable — no label, no class imbalance to correct</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Why train-only fitting matters, everywhere:</strong> every scaler, encoder, and cross-transaction statistic (<code>fit_global_stats</code>) is fit on the training split and only <em>applied</em> to validation/test/new data. This is the fix for the leakage documented in <code>ML_AUDIT_AFTER_FIX.md</code> — fitting on the full dataset before splitting let test-set information leak backward into the training statistics.</p>
+<h3 id="34-feature-engineering">3.4 Feature Engineering</h3>
+<p>Three different feature sets, sized 20 / 46 / 18 — this is the fact most likely to trip you up if you're not careful.</p>
+<ul>
+<li><strong>Pipeline 1 (20 features):</strong> raw behavioral fields + causal per-account features (<code>Amount_vs_AccountAvg</code>, <code>DeviceNoveltyFlag</code>, <code>LocationNoveltyFlag</code>, <code>TimeSinceLastTxn</code>) + train-fit global stats (<code>Amount_vs_TypeAvg</code>, <code>DeviceTxnCount</code>, <code>IPTxnCount</code>, <code>MerchantTxnCount</code>) + categorical encodings.</li>
+<li><strong>Pipeline 2 (46 features, in-house):</strong> Pipeline 1's 20 + 26 more — velocity counts, expanding/rolling amount baselines, amount z-scores, cyclical time encoding, cross-account device/IP sharing counts. This is the feature set with <strong>personal-baseline statistics</strong> — it can ask "is this unusual <em>for this account</em>."</li>
+<li><strong>Pipeline 3 (18 features, client-designated):</strong> a <em>different, smaller</em> set — 5 raw fields, 4 <strong>global</strong> frequency counts (not per-account), an amount-to-balance ratio, a global high-amount flag, categorical encodings. It has <strong>no personal-baseline features at all</strong> — it can only ask "is this unusual in the population," never "for this customer."</li>
+</ul>
+<p>Example feature explained end-to-end — <code>Amount_vs_AccountAvg</code> (Pipeline 1 &amp; 2): computed as <code>(this transaction's amount − this account's prior expanding mean) / (prior mean + ε)</code>. The "prior expanding mean" only ever includes <em>strictly earlier</em> transactions of the <em>same account</em> (<code>groupby("AccountID")...shift().expanding().mean()</code>), which is why it's safe to compute before any split exists. It's useful because a $500 charge means something completely different for an account that normally spends $50 versus one that normally spends $2,000 — this feature captures that directly, which the raw amount alone cannot.</p>
+<h3 id="35-models">3.5 Models</h3>
+<p><strong>Pipeline 1 — supervised (a pseudo-label, not real fraud):</strong>
+4 unsupervised detectors (Isolation Forest, LOF, One-Class SVM, Elliptic Envelope/MCD) each vote independently on the training fold; 3–4 votes = high-confidence, 2 = medium, 0–1 = normal; high+medium collapse into a binary label. That label feeds two XGBoost variants (SMOTE-balanced vs. class-weighted) and a Random Forest, all compared on validation/test. <strong>XGBoost + Class Weighting</strong> was selected (highest test PR-AUC). These are <strong>sequential and independent by role</strong> — the 4 detectors run first and only vote, they don't feed each other; their combined vote becomes the label the classifiers train against.</p>
+<p><strong>Pipelines 2 &amp; 3 — 12 unsupervised anomaly models, run independently on one shared feature matrix, then combined:</strong>
+Isolation Forest, LOF, One-Class SVM, Elliptic Envelope, DBSCAN, HDBSCAN, K-Means, GMM, Autoencoder¹, VAE, LSTM-AE, and a rule-based Hybrid Ensemble (a vote of IF+LOF+Autoencoder). <strong>These do not feed each other</strong> — each independently scores every transaction on the same feature matrix; they're combined only at the very end, by 4 different mathematical strategies (weighted average, rank aggregation/Borda, percentile aggregation, PCA-stacking proxy). <strong>Percentile aggregation is the one actually used</strong>, selected because it's bounded, needs no tuned weights, and degrades gracefully if a model is missing.</p>
+<p><em>¹ In <code>research_v2</code>/the live dashboard, the Autoencoder has been deliberately excluded from the active 10-model ensemble (least retrain-stable model measured, lowest internal-validity score of the 12) — see <code>src_research_v2/12_ensemble_scoring.py</code>'s module docstring. It still exists as a trained artifact and is shown for reference on the Model Comparison page, it's just not part of the live score.</em></p>
+<p><strong>Exactly how the final prediction is calculated (Pipeline 3, live):</strong> each of the 10 active models produces a raw anomaly score → each score is converted to a percentile rank (0 to 1) within that model's own distribution → the row-wise mean of those 10 percentiles is <code>ensemble_percentile_average</code>, a single number in (0,1) → that number is compared against two fixed cutoffs (99th percentile = Priority review, 95th percentile = Standard review, else Normal) — <strong>no automatic blocking</strong>, because a block decision needs a false-negative rate this project has no label to measure.</p>
+<h3 id="36-training-phase-vs-prediction-phase-the-distinction-the-brief-specifically-asked-about">3.6 Training phase vs. prediction phase (the distinction the brief specifically asked about)</h3>
+<p><strong>How the model was created (offline, one-time, files: <code>src_research_v2/04…13_*.py</code>):</strong></p>
+<pre><code>raw CSV
+  → 04_feature_verification.py    (verify the 18 features are correct/reproducible)
+  → 05_dim_reduction.py           (PCA/UMAP/t-SNE, diagnostic only)
+  → 06_models_classical.py        (fit 8 classical models on the TRAIN split)
+  → 07_models_deep.py             (train Autoencoder/VAE/LSTM-AE + Hybrid Ensemble)
+  → 09_hyperparameter_optimization.py  (tune Isolation Forest, GMM, VAE only)
+  → 10_evaluation.py              (internal validity, bootstrap stability — no label to score against)
+  → 11_explainability.py          (SHAP for Isolation Forest, via TreeExplainer)
+  → 12_ensemble_scoring.py        (combine 10 models → ensemble_percentile_average)
+  → 13_threshold_optimization.py  (99th/95th percentile cutoffs)
+  → saved to artifacts_research_v2/*.pkl, *.pt, *.csv, *.json
+</code></pre>
+<p>This runs once, by a person, from the command line. It produces files. It never runs when a user opens the dashboard.</p>
+<p><strong>How the model is used after being created (online, every request, file: <code>dashboard/backend/api_server.py</code>):</strong></p>
+<pre><code>server starts
+  → _load_state() reads artifacts_research_v2/*.pkl/.pt/.csv/.json into memory ONCE
+  → self-check: reloaded Isolation Forest reproduces the published scores exactly
+  → FastAPI starts serving requests
+  → a browser hits e.g. GET /api/transactions/TX000275
+  → the backend looks up that row's PRECOMPUTED score/SHAP from the in-memory STATE
+  → returns it as JSON — no model runs, no scoring happens on this request
+</code></pre>
+<p>The <strong>one</strong> exception where a model actually runs live is Manual Entry / raw-CSV Upload: the backend loads <code>isolation_forest.pkl</code> (already-trained, from disk) and calls <code>.decision_function()</code> on one new row's features, plus a live <code>shap.TreeExplainer</code> call — this is inference on a pre-trained model, not training.</p>
+<hr />
+<h2 id="4-complete-connection-execution-flow">4. Complete Connection / Execution Flow</h2>
+<h3 id="dependency-map-pipeline-3-dashboard-the-live-path">Dependency map (Pipeline 3 + dashboard, the live path)</h3>
+<pre><code>config_research_v2.py                  ← shared constants (FEATURE_COLS_V2, paths)
+        │
+        ▼
+06_models_classical.py, 07_models_deep.py     ← fit models, save to artifacts_research_v2/models/*
+        │
+        ▼
+12_ensemble_scoring.py                 ← reads model_scores_all.csv → writes ensemble_scores_v2.csv
+        │
+        ▼
+13_threshold_optimization.py           ← reads ensemble_scores_v2.csv → writes threshold_analysis_v2.json
+        │
+        ▼
+dashboard/backend/api_server.py        ← reads ALL of the above at startup into STATE
+        │
+        ├── GET  /api/kpis                    → STATE[&quot;ledger&quot;]  (KPI tiles, top-10 table)
+        ├── GET  /api/transactions            → STATE[&quot;ledger&quot;]  (Explorer, filtered/paginated)
+        ├── GET  /api/transactions/{id}       → STATE[&quot;shap_if&quot;] + STATE[&quot;ledger&quot;]
+        ├── GET  /api/model-comparison        → STATE[&quot;validity&quot;], STATE[&quot;stability&quot;], STATE[&quot;weights&quot;]
+        ├── GET  /api/explainability          → STATE[&quot;shap_global&quot;], STATE[&quot;thresholds&quot;]
+        ├── POST /api/score                   → STATE[&quot;sim&quot;] (loads isolation_forest.pkl, scores live)
+        ├── POST /api/upload/predict          → EITHER v1's XGBoost (raw CSV) OR STATE[&quot;sim&quot;] (18-feature CSV)
+        ├── GET/POST /api/queue, /api/queue/action  → queue_state.json (read + write)
+        │
+        ▼
+dashboard/frontend/js/api.js           ← every one of the calls above, as one fetch() wrapper
+        │
+        ▼
+dashboard/frontend/js/app.js           ← calls api.js, populates the DOM, wires navigation/forms
+        │
+        ▼
+dashboard/frontend/js/charts.js        ← draws whatever app.js hands it (bar/line/scatter SVG)
+</code></pre>
+<h3 id="who-calls-this-file-what-does-it-call-what-data-passes-between-them">"Who calls this file? What does it call? What data passes between them?"</h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Called by</th>
+<th>Calls</th>
+<th>Data passed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>config_research_v2.py</code></td>
+<td>every <code>src_research_v2/*.py</code> script</td>
+<td>nothing</td>
+<td>file paths, <code>FEATURE_COLS_V2</code> (a Python list of 18 strings)</td>
+</tr>
+<tr>
+<td><code>06_models_classical.py</code></td>
+<td>run manually, once</td>
+<td><code>model_scores_all.csv</code> write, <code>models/*.pkl</code> write</td>
+<td>the 18-feature matrix in, per-model score column out</td>
+</tr>
+<tr>
+<td><code>12_ensemble_scoring.py</code></td>
+<td>run manually, once</td>
+<td>reads <code>model_scores_all.csv</code>, <code>model_pairwise_spearman.csv</code></td>
+<td>10 score columns in, one <code>ensemble_percentile_average</code> column out</td>
+</tr>
+<tr>
+<td><code>api_server.py</code> <code>_load_state()</code></td>
+<td>called once at process start</td>
+<td>reads every <code>artifacts_research_v2/*</code> file</td>
+<td>nothing in, a single in-memory <code>STATE</code> dict out</td>
+</tr>
+<tr>
+<td><code>api_server.py</code> endpoint functions</td>
+<td>an incoming HTTP request</td>
+<td>read from <code>STATE</code> (no file I/O per-request)</td>
+<td>a <code>TransactionID</code> or query params in, a JSON dict out</td>
+</tr>
+<tr>
+<td><code>api.js</code></td>
+<td><code>app.js</code></td>
+<td><code>fetch()</code> to the backend</td>
+<td>JS object params in, a parsed JSON object (Promise) out</td>
+</tr>
+<tr>
+<td><code>app.js</code></td>
+<td>the browser (click/submit events)</td>
+<td><code>api.js</code>, <code>charts.js</code>, direct DOM writes</td>
+<td>user input in, rendered HTML/SVG out</td>
+</tr>
+</tbody>
+</table>
+<h3 id="start-to-finish-walkthrough">Start-to-finish walkthrough</h3>
+<ol>
+<li><strong>Which file starts first?</strong> <code>python -m uvicorn backend.api_server:app --port 8000</code>, run from <code>dashboard/</code>. This imports <code>api_server.py</code>.</li>
+<li><strong>What does it initialize?</strong> Module-level code runs top to bottom: constants, then <code>STATE = _load_state()</code> (line 388) — this is where every artifact file gets read and the self-check runs. Then <code>app = FastAPI(...)</code> (line 405). Then every <code>@app.get</code>/<code>@app.post</code> decorator registers a route. Finally <code>app.mount("/", StaticFiles(...))</code> (last line) wires the frontend directory to be served at <code>/</code>.</li>
+<li><strong>What component starts?</strong> One process: the FastAPI/uvicorn server. There is no separate frontend build/dev-server process — the same server serves both the API and the static HTML/CSS/JS.</li>
+<li><strong>How does the frontend start?</strong> It doesn't "start" independently — a browser requests <code>http://127.0.0.1:8000/</code>, gets <code>index.html</code> back from <code>StaticFiles</code>, which pulls in <code>api.js</code>/<code>app.js</code>/<code>charts.js</code>/<code>icons.js</code>/<code>format.js</code> via <code>&lt;script&gt;</code> tags. <code>app.js</code>'s <code>DOMContentLoaded</code> handler then fires, wires every button, and calls <code>showPage("overview")</code>.</li>
+<li><strong>How does the backend start?</strong> Covered in step 2 — it's the same process, no separate backend startup step.</li>
+<li><strong>When I give an input</strong> (e.g. submit the Manual Entry form)<strong>, where does it go?</strong> <code>app.js</code>'s form submit handler builds a JSON payload from the form fields → <code>Api.score(payload)</code> in <code>api.js</code> → <code>fetch("/api/score", {method:"POST", body: JSON.stringify(payload)})</code>.</li>
+<li><strong>Which function receives it?</strong> <code>score_scenario(body: ScenarioRequest)</code> in <code>api_server.py</code> (the Pydantic <code>ScenarioRequest</code> model validates the shape automatically before the function body even runs).</li>
+<li><strong>How is it processed?</strong> The 12 raw fields are turned into the 18 engineered feature values (same formulas as training-time feature engineering, computed inline in this function using frozen training constants), assembled into a 1×18 array, scaled with the already-fitted <code>RobustScaler</code>.</li>
+<li><strong>Which model is called?</strong> <code>sim["iforest"].decision_function(...)</code> — the already-trained Isolation Forest, loaded from <code>isolation_forest.pkl</code> at server startup — plus a live <code>shap.TreeExplainer</code> call for the attribution.</li>
+<li><strong>How is the result generated?</strong> The raw score is converted to a percentile (its rank among the 2,512 real transactions' own Isolation Forest scores), compared against the 99th/95th cutoffs for a tier, and packaged into a JSON dict with the score, tier, SHAP breakdown, and the real frequency values used.</li>
+<li><strong>How does the result return to the user?</strong> FastAPI serializes that dict to JSON → the browser's <code>fetch()</code> promise resolves in <code>api.js</code> → <code>app.js</code>'s <code>renderSimResult()</code> writes the values into the DOM → the user sees a badge, a number, and a chart, all on the same page, no reload.</li>
+</ol>
+<pre><code>START (uvicorn boots api_server.py)
+   → INPUT (a browser request, or a form submission)
+   → PROCESSING (feature engineering + scaling, in api_server.py or precomputed in STATE)
+   → ML (a lookup into precomputed scores, OR one live Isolation Forest inference)
+   → OUTPUT (JSON → fetch() → DOM update, all within the same page)
+</code></pre>
+<hr />
+<h2 id="30-second-explanation">30-Second Explanation</h2>
+<p>"This is a fraud-detection dashboard for a bank transaction dataset that has no fraud label. Because there's nothing to train a classifier against directly, the real work is 10 different unsupervised anomaly-detection models — different mathematical ways of asking 'does this look unusual' — combined into one risk score per transaction. A FastAPI backend precomputes everything once and serves it to a plain HTML/JS dashboard where an investigator can browse, filter, and act on the highest-risk cases."</p>
+<h2 id="2-minute-explanation">2-Minute Explanation</h2>
+<p>"There are actually three separate builds in this repo, all on the same 2,512-transaction dataset. The first is supervised: four unsupervised detectors vote on which transactions look statistically odd, that vote becomes a stand-in label, and an XGBoost model is trained against it — giving a real, measurable test-set score, but measuring how well it reproduces the detectors' own judgment, not real fraud. The other two builds are genuinely unsupervised: 12 anomaly models each, built twice on two different feature sets — one with 46 features including per-account personal-baseline statistics, one with a client-designated 18-feature set of population-level frequencies. Both compare all 12 models against each other, since there's no ground truth to evaluate against otherwise. The 18-feature version is the one that's actually deployed: its 10-model ensemble score (Isolation Forest is deliberately excluded now) feeds a FastAPI backend that precomputes every score and SHAP explanation once at startup, then serves them through a REST API to a plain-JS dashboard with an Overview page, a searchable transaction explorer, an investigation queue with persisted decisions, and a manual scenario simulator that runs one model live for a hypothetical transaction."</p>
+<h2 id="technical-explanation">Technical Explanation</h2>
+<p>Three feature-engineering pipelines (20/46/18 columns) over one raw CSV, each with train-only-fit scalers/encoders/statistics to avoid leakage (verified via a documented before/after audit for the supervised build). The supervised build (Pipeline 1) trains a pseudo-label from a 4-detector consensus vote on the training fold, then compares XGBoost (SMOTE vs. class-weighted) and Random Forest on a chronological 64/16/20 train/val/test split, selecting by test PR-AUC. The two unsupervised builds (Pipelines 2/3) each fit 12 models (tree-based, density-based, distribution-based, and three neural reconstruction models) on a RobustScaler-scaled matrix, evaluate them without a label via internal validity metrics and bootstrap retrain-stability, explain two of them via SHAP, and combine model scores into a single risk number via percentile-rank averaging across models — chosen over three alternative combination strategies for its boundedness and graceful degradation on missing members. The live system (Pipeline 3, 10 active models after excluding the Autoencoder) is served by a single-process FastAPI backend that loads every artifact into memory once, self-checks reproducibility against the published scores, and answers all read requests from that in-memory state — the only live model inference happens on the Manual Entry / CSV-upload code paths, which call an already-trained Isolation Forest's <code>.decision_function()</code> plus a <code>TreeExplainer</code> SHAP call on one row at a time.</p>
+<hr />
+<h1 id="what-i-need-to-remember">WHAT I NEED TO REMEMBER</h1>
+<h3 id="project">Project</h3>
+<p>Detect anomalous/suspicious retail-banking transactions in a dataset that has <strong>no fraud label</strong> — so the problem is really "rank transactions by how unusual they are, and explain why," not "classify fraud."</p>
+<h3 id="architecture">Architecture</h3>
+<p>Three ML pipelines (<code>src/</code>, <code>src_research/</code>, <code>src_research_v2/</code>) writing to three artifact folders, one FastAPI backend (<code>dashboard/backend/api_server.py</code>) that serves only the third pipeline's precomputed outputs, one plain-JS frontend (<code>dashboard/frontend/</code>) with no build step. No database — files on disk, loaded into memory.</p>
+<h3 id="dataset">Dataset</h3>
+<p><code>data/bank_transactions_data_2.csv</code> — 2,512 transactions, 495 accounts, 16 raw columns, 0 missing values, <strong>no label</strong>.</p>
+<h3 id="ml">ML</h3>
+<p>Pipeline 1: 4 unsupervised voters (Isolation Forest, LOF, One-Class SVM, Elliptic Envelope) → pseudo-label → XGBoost/Random Forest. Pipelines 2 &amp; 3: the same 4, plus DBSCAN, HDBSCAN, K-Means, GMM, Autoencoder, VAE, LSTM-AE, and a Hybrid Ensemble vote — 12 models total, combined by percentile aggregation (Autoencoder excluded from the live 10-model ensemble by decision).</p>
+<h3 id="features">Features</h3>
+<p>20 (Pipeline 1) / 46 (Pipeline 2, adds per-account personal-baseline stats) / 18 (Pipeline 3, adds only global population-frequency counts — no per-account memory at all). Never mix these three up.</p>
+<h3 id="training">Training</h3>
+<p>Offline, one-time, run manually stage-by-stage from the command line (<code>src*/0N_*.py</code>). Every scaler/encoder/statistic is fit on the training split only, applied unchanged to everything else.</p>
+<h3 id="prediction">Prediction</h3>
+<p>Two modes: (1) precomputed and served from memory for all 2,512 known transactions (no live inference); (2) live inference for a genuinely new/hypothetical transaction, using an already-trained Isolation Forest loaded from disk plus live SHAP — never retraining.</p>
+<h3 id="files">Files</h3>
+<ol>
+<li><code>data/bank_transactions_data_2.csv</code>, 2. <code>ML_AUDIT_AFTER_FIX.md</code>, 3. <code>src/fe_utils.py</code>, 4. <code>dashboard/backend/api_server.py</code>, 5. <code>src_research_v2/config_research_v2.py</code>, 6. <code>src_research_v2/12_ensemble_scoring.py</code>, 7. <code>research_v2/15_final_research_report.md</code>, 8. <code>dashboard/frontend/js/app.js</code>.</li>
+</ol>
+<h3 id="flow">Flow</h3>
+<p>Raw CSV → train-only-fit feature engineering → 10–12 independent anomaly models on one shared matrix → percentile-averaged into one score → thresholded into Priority/Standard/Normal → precomputed and cached → served through a REST API → rendered by plain-JS pages an investigator actually uses.</p>
+<h3 id="one-line-architecture">One-line architecture</h3>
+<p><code>Raw CSV → Feature Engineering (train-only fit) → 12 Unsupervised Models → Percentile-Aggregated Ensemble Score → FastAPI (precomputed, in-memory) → Plain-JS Dashboard → Investigator Decision</code></p>
+</body></html>
