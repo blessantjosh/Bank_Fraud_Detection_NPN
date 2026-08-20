@@ -1,0 +1,9 @@
+Metric,Value
+Mean Spearman Correlation,0.43866063830276913
+Median Spearman Correlation,0.46171112209439524
+Min Spearman Correlation,-0.0524014639433242
+Max Spearman Correlation,0.8401508362731884
+Mean Jaccard Similarity,0.2075189994085763
+Median Jaccard Similarity,0.21392255394620155
+Min Jaccard Similarity,0.0228782287822878
+Max Jaccard Similarity,0.5766423357664233
