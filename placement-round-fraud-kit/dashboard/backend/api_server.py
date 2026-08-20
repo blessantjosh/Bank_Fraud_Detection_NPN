@@ -1172,16 +1172,27 @@ def _score_v2_feature_format(df: pd.DataFrame):
 
 @app.post("/api/upload/predict")
 async def upload_predict(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Please upload a .csv file.")
+    filename_lower = file.filename.lower()
+    valid_extensions = (".csv", ".xlsx", ".xls")
+    if not filename_lower.endswith(valid_extensions):
+        raise HTTPException(status_code=400, detail="Please upload a .csv or Excel (.xlsx, .xls) file.")
     raw_bytes = await file.read()
+    if len(raw_bytes) == 0:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty. Please upload a file with transaction data.")
     try:
-        df = pd.read_csv(io.BytesIO(raw_bytes))
+        if filename_lower.endswith(".csv"):
+            df = pd.read_csv(io.BytesIO(raw_bytes))
+        else:
+            df = pd.read_excel(io.BytesIO(raw_bytes))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not parse this file as CSV: {e}")
+        raise HTTPException(status_code=400, detail=f"Could not parse this file: {e}")
 
+    if df.empty or (len(df) == 0 and len(df.columns) == 0):
+        raise HTTPException(status_code=400, detail="No data found in the file — it appears to be empty. Please upload a file with transaction rows and columns.")
     if len(df) == 0:
-        raise HTTPException(status_code=400, detail="The uploaded CSV has no rows.")
+        raise HTTPException(status_code=400, detail="The file has column headers but no data rows. Please upload a file with transaction data.")
+    if len(df.columns) == 0:
+        raise HTTPException(status_code=400, detail="No columns found in the file. Please upload a properly formatted CSV or Excel file.")
     if len(df) > UPLOAD_MAX_ROWS:
         raise HTTPException(
             status_code=400,
@@ -1200,7 +1211,7 @@ async def upload_predict(file: UploadFile = File(...)):
         raise HTTPException(
             status_code=400,
             detail=(
-                f"CSV doesn't match either supported format. For the raw transaction log, it's missing: "
+                f"File doesn't match either supported format. For the raw transaction log, it's missing: "
                 f"{', '.join(missing_raw)}. It also doesn't match the pre-engineered 18-feature format "
                 f"({', '.join(FEATURE_COLS_V2)})."
             ),
@@ -1222,11 +1233,28 @@ async def upload_predict(file: UploadFile = File(...)):
     }
 
 
+# Custom middleware to disable caching for CSS/JS files
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
+class NoCacheMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # Disable caching for CSS, JS, and HTML files
+        if any(ext in request.url.path for ext in ['.css', '.js', '.html']):
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+        return response
+
+app.add_middleware(NoCacheMiddleware)
+
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
 
 if __name__ == "__main__":
     import uvicorn
+    port = int(os.environ.get("PORT", 8000))
     print("Starting Bank Fraud Detection Dashboard...")
-    print("Navigate to: http://localhost:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    print(f"Navigate to: http://localhost:{port}")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

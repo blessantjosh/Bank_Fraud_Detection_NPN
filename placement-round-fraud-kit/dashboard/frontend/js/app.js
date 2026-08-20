@@ -3,6 +3,16 @@
  * `ensemble_percentile_average`, tiers are the Phase 13 (v2) percentile cutoffs,
  * and explanations are the precomputed Isolation Forest / Autoencoder SHAP rows. */
 
+// Clear old data on version update
+const APP_VERSION = '2.0';
+const storedVersion = localStorage.getItem('fraud-detection-version');
+if (storedVersion !== APP_VERSION) {
+  console.log('Version update detected, clearing old data...');
+  localStorage.removeItem('fraud-detection-uploads');
+  localStorage.removeItem('fraud-detection-upload-history');
+  localStorage.setItem('fraud-detection-version', APP_VERSION);
+}
+
 const NAV_META = {
   overview: { label: "Overview", icon: "overview", title: "Overview", subtitle: "Transaction risk monitoring dashboard" },
   "data-input": { label: "Data Input", icon: "upload", title: "Data Input", subtitle: "Upload and analyze transaction data" },
@@ -166,93 +176,339 @@ function txRowHtml(tx, includeType) {
 }
 
 // ---------------------------------------------------------------------
-// overview - shows only uploaded transaction statistics
+// overview - shows ONLY uploaded CSV data, NOT API data
 // ---------------------------------------------------------------------
 async function loadOverview() {
-  document.querySelectorAll(".kpi-value").forEach((el) => el.classList.remove("skeleton-loading"));
-
-  // Load uploaded transactions
   loadUploadedTransactions();
 
-  if (uploadedTransactions.length === 0) {
-    // No data uploaded yet - show zeros
-    document.querySelector('[data-kpi="total"]').textContent = "0";
-    document.querySelector('[data-kpi="priority"]').textContent = "0";
-    document.querySelector('[data-kpi="standard"]').textContent = "0";
-    document.querySelector('[data-kpi="flagrate"]').textContent = "0%";
-    document.querySelector('[data-kpi="avgamount"]').textContent = "$0";
-    document.getElementById("status-dataset").textContent = "No transactions analyzed yet";
-    document.getElementById("status-icon").textContent = "ℹ";
+  const welcomeEl = document.getElementById("overview-welcome");
+  const dataLoadedEl = document.getElementById("overview-data-loaded");
 
-    // Show empty scatter plot
-    document.getElementById("chart-outlier-scatter").innerHTML =
-      '<div class="empty-state"><p style="font-size:14px;margin-bottom:8px">No data to visualize</p><p style="font-size:12px;color:var(--text-muted)">Upload transactions in the Data Input section to see risk visualization</p></div>';
+  if (uploadedTransactions.length === 0) {
+    welcomeEl.style.display = "flex";
+    dataLoadedEl.style.display = "none";
     return;
   }
 
-  // Calculate statistics from uploaded transactions
+  welcomeEl.style.display = "none";
+  dataLoadedEl.style.display = "block";
+
   const total = uploadedTransactions.length;
   const priority = uploadedTransactions.filter(tx => tx.fraud_percentage >= 70).length;
   const standard = uploadedTransactions.filter(tx => tx.fraud_percentage >= 50 && tx.fraud_percentage < 70).length;
+  const safe = total - priority - standard;
   const flagRate = (priority + standard) / total;
   const avgAmount = uploadedTransactions.reduce((sum, tx) => sum + (tx.amount || 0), 0) / total;
+  const pending = uploadedTransactions.filter(tx => (tx.status || 'pending') === 'pending').length;
 
-  // Display statistics
   Fmt.countUp(document.querySelector('[data-kpi="total"]'), total, { formatter: Fmt.int });
   Fmt.countUp(document.querySelector('[data-kpi="priority"]'), priority, { formatter: Fmt.int });
   Fmt.countUp(document.querySelector('[data-kpi="standard"]'), standard, { formatter: Fmt.int });
-  Fmt.countUp(document.querySelector('[data-kpi="flagrate"]'), flagRate, { formatter: Fmt.pct, decimals: 4 });
+  Fmt.countUp(document.querySelector('[data-kpi="flagrate"]'), flagRate, { formatter: Fmt.pct, decimals: 1 });
   Fmt.countUp(document.querySelector('[data-kpi="avgamount"]'), avgAmount, { formatter: Fmt.money, decimals: 2 });
 
-  // Update status panel
-  document.getElementById("status-dataset").textContent = `${Fmt.int(total)} transactions analyzed`;
-  document.getElementById("status-icon").textContent = "✓";
+  // Dynamic island stats
+  document.getElementById("island-high-risk-count").textContent = priority + standard;
+  document.getElementById("island-safe-count").textContent = safe;
+  document.getElementById("island-pending-count").textContent = pending;
 
-  // Load scatter plot with uploaded data
-  loadOutlierScatter();
+  loadLOFChart();
+  loadRiskDistributionChart();
 }
 
-async function loadOutlierScatter() {
+function renderTransactionFlowChart() {
+  const container = document.getElementById("chart-transaction-flow");
+  if (!container || uploadedTransactions.length === 0) return;
+
+  // Group transactions into buckets to simulate a flow chart
+  const bucketCount = Math.min(20, Math.max(8, Math.floor(uploadedTransactions.length / 50)));
+  const bucketSize = Math.ceil(uploadedTransactions.length / bucketCount);
+  const buckets = [];
+
+  for (let i = 0; i < bucketCount; i++) {
+    const slice = uploadedTransactions.slice(i * bucketSize, (i + 1) * bucketSize);
+    buckets.push({
+      index: i + 1,
+      total: slice.length,
+      flagged: slice.filter(tx => tx.fraud_percentage >= 50).length
+    });
+  }
+
+  const traceTotal = {
+    x: buckets.map(b => `Batch ${b.index}`),
+    y: buckets.map(b => b.total),
+    type: 'scatter',
+    mode: 'lines+markers',
+    name: 'Transactions Scored',
+    line: { color: '#1a56db', width: 3 },
+    marker: { size: 5 },
+    fill: 'tozeroy',
+    fillcolor: 'rgba(26,86,219,0.08)'
+  };
+
+  const traceFlagged = {
+    x: buckets.map(b => `Batch ${b.index}`),
+    y: buckets.map(b => b.flagged),
+    type: 'scatter',
+    mode: 'lines+markers',
+    name: 'Flagged as Fraud',
+    line: { color: '#dc2626', width: 2.5 },
+    marker: { size: 5 }
+  };
+
+  const layout = {
+    height: 340,
+    margin: { t: 10, b: 40, l: 50, r: 20 },
+    xaxis: { gridcolor: '#f1f5f9', tickfont: { size: 11 } },
+    yaxis: { title: 'Count', gridcolor: '#f1f5f9', tickfont: { size: 11 } },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    font: { family: 'Inter, system-ui, sans-serif', size: 12 },
+    legend: { orientation: 'h', y: -0.15, x: 0.5, xanchor: 'center' },
+    showlegend: true
+  };
+
+  Plotly.newPlot(container, [traceTotal, traceFlagged], layout, { responsive: true, displayModeBar: false });
+}
+
+function renderRiskMix() {
+  const total = uploadedTransactions.length;
+  const critical = uploadedTransactions.filter(tx => tx.fraud_percentage >= 80).length;
+  const high = uploadedTransactions.filter(tx => tx.fraud_percentage >= 60 && tx.fraud_percentage < 80).length;
+  const medium = uploadedTransactions.filter(tx => tx.fraud_percentage >= 40 && tx.fraud_percentage < 60).length;
+  const low = uploadedTransactions.filter(tx => tx.fraud_percentage < 40).length;
+
+  const criticalAmt = uploadedTransactions.filter(tx => tx.fraud_percentage >= 80).reduce((s, tx) => s + (tx.amount || 0), 0);
+  const highAmt = uploadedTransactions.filter(tx => tx.fraud_percentage >= 60 && tx.fraud_percentage < 80).reduce((s, tx) => s + (tx.amount || 0), 0);
+  const mediumAmt = uploadedTransactions.filter(tx => tx.fraud_percentage >= 40 && tx.fraud_percentage < 60).reduce((s, tx) => s + (tx.amount || 0), 0);
+  const lowAmt = uploadedTransactions.filter(tx => tx.fraud_percentage < 40).reduce((s, tx) => s + (tx.amount || 0), 0);
+
+  // Risk mix bar
+  const barEl = document.getElementById("risk-mix-bar");
+  barEl.innerHTML = `
+    <div style="flex:${critical};background:#dc2626"></div>
+    <div style="flex:${high};background:#f59e0b"></div>
+    <div style="flex:${medium};background:#eab308"></div>
+    <div style="flex:${low};background:#16a34a"></div>
+  `;
+
+  // Risk mix table
+  const tiers = [
+    { label: 'Critical', color: '#dc2626', count: critical, share: ((critical/total)*100).toFixed(0), value: criticalAmt },
+    { label: 'High', color: '#f59e0b', count: high, share: ((high/total)*100).toFixed(0), value: highAmt },
+    { label: 'Medium', color: '#eab308', count: medium, share: ((medium/total)*100).toFixed(0), value: mediumAmt },
+    { label: 'Low', color: '#16a34a', count: low, share: ((low/total)*100).toFixed(0), value: lowAmt },
+  ];
+
+  document.getElementById("risk-mix-table").innerHTML = tiers.map(t => `
+    <div class="risk-mix-row">
+      <div class="risk-mix-dot" style="background:${t.color}"></div>
+      <span class="risk-mix-label">${t.label}</span>
+      <span class="risk-mix-count">${Fmt.int(t.count)}</span>
+      <span class="risk-mix-share">${t.share}%</span>
+      <span class="risk-mix-value">$${(t.value/1000).toFixed(1)}k</span>
+    </div>
+  `).join('');
+}
+
+function loadLOFChart() {
   if (uploadedTransactions.length === 0) {
-    document.getElementById("chart-outlier-scatter").innerHTML =
-      '<div class="empty-state"><p style="font-size:14px;margin-bottom:8px">No data to visualize</p><p style="font-size:12px;color:var(--text-muted)">Upload transactions in the Data Input section to see risk visualization</p></div>';
+    document.getElementById("overview-lof-card").style.display = "none";
     return;
   }
 
+  document.getElementById("overview-lof-card").style.display = "block";
+
   try {
-    const scatterData = uploadedTransactions.map(tx => {
-      const fraudPercent = tx.fraud_percentage;
-      const tierCode = fraudPercent >= 70 ? 'priority' : fraudPercent >= 50 ? 'standard' : 'normal';
+    const lofData = computeLOFScores(uploadedTransactions);
+    const chartContainer = document.getElementById("chart-lof-scatter");
+    if (!chartContainer) return;
 
-      return {
-        id: tx.transaction_id,
-        x: Math.random() * 10,  // Simulated risk indicator spread
-        y: fraudPercent / 100,   // Convert percentage to 0-1 scale
-        tier: tierCode,
-        score: fraudPercent / 100,
-        clickable: false,  // Uploaded transactions don't have full detail view yet
-      };
-    });
+    // Compute thresholds
+    const scores = lofData.map(d => d.lofScore).sort((a, b) => a - b);
+    const outlierThreshold = scores[Math.floor(scores.length * 0.85)];
+    const borderlineThreshold = scores[Math.floor(scores.length * 0.70)];
 
-    Charts.renderScatterPlot(document.getElementById("chart-outlier-scatter"), {
-      data: scatterData,
-      xLabel: "Risk Indicators",
-      yLabel: "Risk Score",
-      colorBy: "tier",
-    });
+    // Split into 3 groups
+    const inliers = lofData.filter(d => d.lofScore < borderlineThreshold);
+    const borderline = lofData.filter(d => d.lofScore >= borderlineThreshold && d.lofScore < outlierThreshold);
+    const outliers = lofData.filter(d => d.lofScore >= outlierThreshold);
 
-    document.getElementById("outlier-subtitle").textContent =
-      `Visual representation of ${uploadedTransactions.length} analyzed transactions`;
+    const traceInliers = {
+      x: inliers.map(d => d.x),
+      y: inliers.map(d => d.lofScore),
+      mode: 'markers',
+      type: 'scatter',
+      name: 'Inlier',
+      text: inliers.map(d => `${d.id}<br>Score: ${d.lofScore.toFixed(3)}<br>Amount: $${(d.amount || 0).toFixed(2)}`),
+      hoverinfo: 'text',
+      marker: { color: '#16a34a', size: 7, opacity: 0.7 }
+    };
+
+    const traceBorderline = {
+      x: borderline.map(d => d.x),
+      y: borderline.map(d => d.lofScore),
+      mode: 'markers',
+      type: 'scatter',
+      name: 'Borderline',
+      text: borderline.map(d => `${d.id}<br>Score: ${d.lofScore.toFixed(3)}<br>Amount: $${(d.amount || 0).toFixed(2)}`),
+      hoverinfo: 'text',
+      marker: { color: '#eab308', size: 8, opacity: 0.8 }
+    };
+
+    const traceOutliers = {
+      x: outliers.map(d => d.x),
+      y: outliers.map(d => d.lofScore),
+      mode: 'markers',
+      type: 'scatter',
+      name: 'Outlier',
+      text: outliers.map(d => `${d.id}<br>Score: ${d.lofScore.toFixed(3)}<br>Amount: $${(d.amount || 0).toFixed(2)}`),
+      hoverinfo: 'text',
+      marker: { color: '#dc2626', size: 10, opacity: 0.9 }
+    };
+
+    const layout = {
+      height: 380,
+      margin: { t: 20, b: 50, l: 60, r: 30 },
+      xaxis: { title: 'Transaction Index', gridcolor: '#e2e8f0' },
+      yaxis: { title: 'Outlier Score', gridcolor: '#e2e8f0' },
+      paper_bgcolor: 'rgba(0,0,0,0)',
+      plot_bgcolor: 'rgba(0,0,0,0)',
+      font: { family: 'Inter, system-ui, sans-serif', size: 12 },
+      legend: { orientation: 'h', y: 1.12, x: 0.5, xanchor: 'center' },
+      shapes: [
+        { type: 'line', x0: 0, x1: lofData.length, y0: outlierThreshold, y1: outlierThreshold, line: { color: '#dc2626', width: 2, dash: 'dash' } },
+        { type: 'line', x0: 0, x1: lofData.length, y0: borderlineThreshold, y1: borderlineThreshold, line: { color: '#eab308', width: 2, dash: 'dash' } }
+      ]
+    };
+
+    const config = { responsive: true, displayModeBar: false };
+
+    Plotly.newPlot(chartContainer, [traceInliers, traceBorderline, traceOutliers], layout, config);
+
+    document.getElementById("lof-subtitle").textContent =
+      `Analyzing ${uploadedTransactions.length} transactions — ${outliers.length} flagged as density outliers based on neighborhood deviation`;
   } catch (err) {
-    console.error("Failed to load scatter plot:", err);
-    document.getElementById("chart-outlier-scatter").innerHTML =
-      '<div class="empty-state">Risk visualization unavailable</div>';
+    console.error("Failed to render LOF chart:", err);
+    document.getElementById("chart-lof-scatter").innerHTML =
+      `<div class="empty-state">Outlier visualization error: ${err.message}</div>`;
   }
+}
+
+function computeLOFScores(transactions) {
+  // Compute Local Outlier Factor-style scores
+  // LOF measures how isolated a point is relative to its k-nearest neighbors
+  // Cap at 500 transactions for performance (O(n²k) algorithm)
+  const txSample = transactions.length > 500
+    ? transactions.filter((_, i) => i % Math.ceil(transactions.length / 500) === 0)
+    : transactions;
+  transactions = txSample;
+  const k = Math.min(5, Math.max(2, Math.floor(transactions.length * 0.05)));
+
+  // Normalize features for distance calculation
+  const amounts = transactions.map(tx => tx.amount || 0);
+  const scores = transactions.map(tx => tx.fraud_percentage || 0);
+
+  const amountMin = Math.min(...amounts);
+  const amountMax = Math.max(...amounts) || 1;
+  const scoreMin = Math.min(...scores);
+  const scoreMax = Math.max(...scores) || 1;
+
+  const normalized = transactions.map(tx => ({
+    amount: ((tx.amount || 0) - amountMin) / (amountMax - amountMin || 1),
+    score: ((tx.fraud_percentage || 0) - scoreMin) / (scoreMax - scoreMin || 1),
+  }));
+
+  // Compute pairwise distances
+  function distance(a, b) {
+    const da = a.amount - b.amount;
+    const ds = a.score - b.score;
+    return Math.sqrt(da * da + ds * ds);
+  }
+
+  // For each point, find k-nearest neighbors and compute reachability density
+  const reachDensities = normalized.map((point, i) => {
+    const distances = normalized.map((other, j) => ({
+      idx: j,
+      dist: i === j ? Infinity : distance(point, other)
+    })).sort((a, b) => a.dist - b.dist);
+
+    const kNeighbors = distances.slice(0, k);
+    const kDist = kNeighbors[k - 1]?.dist || 0.001;
+
+    // Reachability distance: max(k-dist of neighbor, actual distance)
+    const reachSum = kNeighbors.reduce((sum, n) => {
+      const neighborKDist = (() => {
+        const nDistances = normalized.map((other, j) => ({
+          dist: n.idx === j ? Infinity : distance(normalized[n.idx], other)
+        })).sort((a, b) => a.dist - b.dist);
+        return nDistances[k - 1]?.dist || 0.001;
+      })();
+      return sum + Math.max(neighborKDist, n.dist);
+    }, 0);
+
+    return k / (reachSum || 0.001);
+  });
+
+  // LOF = average ratio of neighbor densities to own density
+  const lofScores = normalized.map((point, i) => {
+    const distances = normalized.map((other, j) => ({
+      idx: j,
+      dist: i === j ? Infinity : distance(point, other)
+    })).sort((a, b) => a.dist - b.dist);
+
+    const kNeighbors = distances.slice(0, k);
+    const avgNeighborDensity = kNeighbors.reduce((sum, n) => sum + reachDensities[n.idx], 0) / k;
+    const ownDensity = reachDensities[i] || 0.001;
+
+    return avgNeighborDensity / ownDensity;
+  });
+
+  return transactions.map((tx, i) => ({
+    id: tx.transaction_id,
+    x: i,
+    lofScore: lofScores[i],
+    amount: tx.amount,
+    fraudPercent: tx.fraud_percentage,
+  }));
+}
+
+function loadRiskDistributionChart() {
+  if (uploadedTransactions.length === 0) return;
+
+  const container = document.getElementById("chart-risk-distribution");
+  if (!container) return;
+
+  const scores = uploadedTransactions.map(tx => tx.fraud_percentage).sort((a, b) => a - b);
+  const bucketSize = 10;
+  const buckets = [];
+  for (let i = 0; i < 100; i += bucketSize) {
+    const count = scores.filter(s => s >= i && s < i + bucketSize).length;
+    buckets.push({ x: i + bucketSize / 2, count });
+  }
+  const last = scores.filter(s => s >= 100).length;
+  if (last > 0) buckets[buckets.length - 1].count += last;
+
+  Charts.renderBarChart(container, {
+    data: buckets.map(b => ({
+      label: `${b.x - 5}-${b.x + 5}%`,
+      value: b.count,
+      color: b.x < 50 ? Charts.cssVar("--status-good") :
+             b.x < 70 ? Charts.cssVar("--status-warning") :
+             Charts.cssVar("--status-critical"),
+    })),
+    height: 180,
+    valueFormatter: Fmt.int,
+    legend: [
+      { label: "Normal (< 50%)", color: Charts.cssVar("--status-good") },
+      { label: "Elevated (50-70%)", color: Charts.cssVar("--status-warning") },
+      { label: "Outlier (> 70%)", color: Charts.cssVar("--status-critical") },
+    ],
+  });
 }
 
 function renderOverviewCharts(data) {
   // Overview charts are now handled by loadOutlierScatter
-  // This function is kept for compatibility but does nothing
 }
 
 // ---------------------------------------------------------------------
@@ -862,8 +1118,10 @@ function renderSimCharts(r) {
 // upload & predict
 // ---------------------------------------------------------------------
 function uploadRowHtml(r) {
-  const highRisk = r.fraud_percentage >= 70;
-  const pctStyle = highRisk ? ` style="color:var(--status-critical);font-weight:600"` : "";
+  const isFraud = r.fraud_percentage >= 50;
+  const pctStyle = isFraud
+    ? ` style="color:#dc2626;font-weight:700"`
+    : ` style="color:#16a34a;font-weight:700"`;
   const dash = (v) => (v === null || v === undefined || v === "" ? "—" : v);
   return `<tr>
     <td>${Fmt.escapeHtml(String(dash(r.transaction_id)))}</td>
@@ -878,18 +1136,18 @@ function uploadRowHtml(r) {
 // fraud report generation
 // ---------------------------------------------------------------------
 function generateFraudReport() {
-  const fraudulent = uploadedTransactions.filter(tx => tx.fraud_percentage >= 50);
-
-  if (fraudulent.length === 0) {
-    showToast("No fraudulent transactions to report");
+  if (uploadedTransactions.length === 0) {
+    showToast("No transactions to report");
     return;
   }
 
-  // Show format selection dialog
-  showReportFormatDialog(fraudulent);
+  showReportFormatDialog(uploadedTransactions);
 }
 
-function showReportFormatDialog(fraudulent) {
+function showReportFormatDialog(allTransactions) {
+  const fraudulent = allTransactions.filter(tx => tx.fraud_percentage >= 50);
+  const approved = allTransactions.filter(tx => tx.fraud_percentage < 50);
+
   // Create modal overlay
   const overlay = document.createElement('div');
   overlay.style.cssText = `
@@ -909,21 +1167,21 @@ function showReportFormatDialog(fraudulent) {
   `;
 
   dialog.innerHTML = `
-    <h2 style="margin: 0 0 16px 0; color: var(--text-primary);">Generate Fraud Report</h2>
+    <h2 style="margin: 0 0 16px 0; color: var(--text-primary);">Generate Transaction Report</h2>
     <p style="margin: 0 0 24px 0; color: var(--text-secondary);">
-      ${fraudulent.length} fraudulent transaction(s) detected. Choose report format:
+      ${allTransactions.length} total transaction(s): ${fraudulent.length} flagged, ${approved.length} approved. Choose report format:
     </p>
     <div style="display: flex; flex-direction: column; gap: 12px;">
       <button id="report-csv-btn" class="btn btn-primary" style="width: 100%; padding: 16px;">
-        📊 Download CSV Report
+        Download CSV Report
         <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">Structured data for analysis & spreadsheets</div>
       </button>
       <button id="report-pdf-btn" class="btn btn-primary" style="width: 100%; padding: 16px;">
-        📄 Generate PDF Report
+        Generate PDF Report
         <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">Colorful formatted report (opens in new window)</div>
       </button>
       <button id="report-both-btn" class="btn btn-good" style="width: 100%; padding: 16px;">
-        📦 Download Both Formats
+        Download Both Formats
         <div style="font-size: 12px; opacity: 0.8; margin-top: 4px;">CSV + PDF for complete documentation</div>
       </button>
       <button id="report-cancel-btn" class="btn btn-ghost" style="width: 100%; margin-top: 8px;">
@@ -937,18 +1195,18 @@ function showReportFormatDialog(fraudulent) {
 
   // Wire up buttons
   document.getElementById('report-csv-btn').addEventListener('click', () => {
-    generateCSVReport(fraudulent);
+    generateCSVReport(allTransactions);
     document.body.removeChild(overlay);
   });
 
   document.getElementById('report-pdf-btn').addEventListener('click', () => {
-    generatePDFReport(fraudulent);
+    generatePDFReport(allTransactions);
     document.body.removeChild(overlay);
   });
 
   document.getElementById('report-both-btn').addEventListener('click', () => {
-    generateCSVReport(fraudulent);
-    setTimeout(() => generatePDFReport(fraudulent), 500);
+    generateCSVReport(allTransactions);
+    setTimeout(() => generatePDFReport(allTransactions), 500);
     document.body.removeChild(overlay);
   });
 
@@ -963,10 +1221,10 @@ function showReportFormatDialog(fraudulent) {
   });
 }
 
-function generateCSVReport(fraudulent) {
+function generateCSVReport(allTransactions) {
   // Group by account
   const accountMap = {};
-  fraudulent.forEach(tx => {
+  allTransactions.forEach(tx => {
     const accId = tx.account_id || 'Unknown';
     if (!accountMap[accId]) {
       accountMap[accId] = [];
@@ -977,33 +1235,41 @@ function generateCSVReport(fraudulent) {
   const reportDate = new Date().toISOString();
 
   // CSV Header
-  let csv = "Transaction ID,Account ID,Date,Amount,Fraud Score (%),Risk Level,Status,Recommended Action,Detection Summary,Uploaded At\n";
+  let csv = "Transaction ID,Account ID,Date,Amount,Fraud Score (%),Risk Level,Classification,Status,Recommended Action,Detection Summary,Uploaded At\n";
+
+  // Escape CSV fields
+  const escapeCSV = (val) => {
+    if (val === null || val === undefined) return '';
+    const str = String(val);
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
 
   // Add each transaction
   Object.entries(accountMap).forEach(([accountId, transactions]) => {
-    const avgRisk = transactions.reduce((sum, tx) => sum + tx.fraud_percentage, 0) / transactions.length;
-
     transactions.forEach(tx => {
+      const isFraud = tx.fraud_percentage >= 50;
+
       const riskLevel = tx.fraud_percentage >= 80 ? 'CRITICAL' :
                        tx.fraud_percentage >= 70 ? 'HIGH' :
-                       tx.fraud_percentage >= 60 ? 'ELEVATED' : 'MODERATE';
+                       tx.fraud_percentage >= 60 ? 'ELEVATED' :
+                       tx.fraud_percentage >= 50 ? 'MODERATE' :
+                       tx.fraud_percentage >= 30 ? 'LOW' : 'SAFE';
+
+      const classification = tx.fraud_percentage >= 80 ? 'ESCALATED' :
+                            tx.fraud_percentage >= 50 ? 'FLAGGED' : 'APPROVED';
 
       const action = tx.fraud_percentage >= 80 ? 'Block Account Immediately' :
                     tx.fraud_percentage >= 70 ? 'Place Temporary Hold' :
                     tx.fraud_percentage >= 60 ? 'Priority Review Required' :
-                    'Schedule Manual Review';
+                    tx.fraud_percentage >= 50 ? 'Schedule Manual Review' :
+                    'No Action Required';
 
-      const detection = `Fraud probability ${tx.fraud_percentage.toFixed(1)}% - Pattern analysis flagged suspicious behavior`;
-
-      // Escape CSV fields
-      const escapeCSV = (val) => {
-        if (val === null || val === undefined) return '';
-        const str = String(val);
-        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-          return `"${str.replace(/"/g, '""')}"`;
-        }
-        return str;
-      };
+      const detection = isFraud
+        ? `Fraud probability ${tx.fraud_percentage.toFixed(1)}% - Pattern analysis flagged suspicious behavior`
+        : `Fraud probability ${tx.fraud_percentage.toFixed(1)}% - Transaction approved as legitimate`;
 
       csv += `${escapeCSV(tx.transaction_id)},`;
       csv += `${escapeCSV(accountId)},`;
@@ -1011,6 +1277,7 @@ function generateCSVReport(fraudulent) {
       csv += `${escapeCSV((tx.amount || 0).toFixed(2))},`;
       csv += `${tx.fraud_percentage.toFixed(2)},`;
       csv += `${riskLevel},`;
+      csv += `${classification},`;
       csv += `${escapeCSV(tx.status || 'Pending')},`;
       csv += `${escapeCSV(action)},`;
       csv += `${escapeCSV(detection)},`;
@@ -1023,433 +1290,214 @@ function generateCSVReport(fraudulent) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `fraud_report_${new Date().toISOString().split('T')[0]}.csv`;
+  a.download = `transaction_report_${new Date().toISOString().split('T')[0]}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 
-  showToast(`CSV report generated for ${fraudulent.length} transactions`);
+  showToast(`CSV report generated for ${allTransactions.length} transactions`);
 }
 
-function generatePDFReport(fraudulent) {
-  // Group by account
-  const accountMap = {};
+function generatePDFReport(allTransactions) {
+  const fraudulent = allTransactions.filter(tx => tx.fraud_percentage >= 50);
+  const approved = allTransactions.filter(tx => tx.fraud_percentage < 50);
+
+  const fraudAccountMap = {};
   fraudulent.forEach(tx => {
     const accId = tx.account_id || 'Unknown';
-    if (!accountMap[accId]) {
-      accountMap[accId] = [];
-    }
-    accountMap[accId].push(tx);
+    if (!fraudAccountMap[accId]) fraudAccountMap[accId] = [];
+    fraudAccountMap[accId].push(tx);
   });
 
-  const reportDate = new Date().toLocaleString();
-  const totalAmount = fraudulent.reduce((sum, tx) => sum + (tx.amount || 0), 0);
-  const fraudRate = ((fraudulent.length / uploadedTransactions.length) * 100).toFixed(2);
+  const approvedAccountMap = {};
+  approved.forEach(tx => {
+    const accId = tx.account_id || 'Unknown';
+    if (!approvedAccountMap[accId]) approvedAccountMap[accId] = [];
+    approvedAccountMap[accId].push(tx);
+  });
 
-  // Generate HTML report
-  const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Fraud Detection Report - ${new Date().toISOString().split('T')[0]}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      padding: 40px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-    }
-    .report-container {
-      max-width: 1200px;
-      margin: 0 auto;
-      background: white;
-      border-radius: 16px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      overflow: hidden;
-    }
-    .report-header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 40px;
-      text-align: center;
-    }
-    .report-header h1 {
-      font-size: 32px;
-      margin-bottom: 8px;
-      font-weight: 700;
-    }
-    .report-header p {
-      font-size: 16px;
-      opacity: 0.95;
-    }
-    .report-body {
-      padding: 40px;
-    }
-    .summary-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 20px;
-      margin-bottom: 40px;
-    }
-    .summary-card {
-      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-      color: white;
-      padding: 24px;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
-    .summary-card.blue { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
-    .summary-card.green { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
-    .summary-card.orange { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
-    .summary-card.purple { background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); }
-    .summary-card h3 {
-      font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 8px;
-      opacity: 0.9;
-    }
-    .summary-card .value {
-      font-size: 32px;
-      font-weight: 700;
-    }
-    .section-title {
-      font-size: 24px;
-      color: #2d3748;
-      margin: 40px 0 20px 0;
-      padding-bottom: 12px;
-      border-bottom: 3px solid #667eea;
-      font-weight: 700;
-    }
-    .account-card {
-      background: #f7fafc;
-      border-left: 4px solid #667eea;
-      padding: 24px;
-      margin-bottom: 24px;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    }
-    .account-card.critical { border-left-color: #f56565; }
-    .account-card.high { border-left-color: #ed8936; }
-    .account-card.elevated { border-left-color: #ecc94b; }
-    .account-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-    .account-id {
-      font-size: 20px;
-      font-weight: 700;
-      color: #2d3748;
-    }
-    .risk-badge {
-      padding: 8px 16px;
-      border-radius: 20px;
-      font-weight: 600;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .risk-badge.critical { background: #fed7d7; color: #c53030; }
-    .risk-badge.high { background: #feebc8; color: #c05621; }
-    .risk-badge.elevated { background: #fefcbf; color: #b7791f; }
-    .risk-badge.moderate { background: #bee3f8; color: #2c5282; }
-    .account-stats {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 16px;
-      margin-bottom: 20px;
-    }
-    .stat {
-      background: white;
-      padding: 12px;
-      border-radius: 6px;
-    }
-    .stat-label {
-      font-size: 12px;
-      color: #718096;
-      margin-bottom: 4px;
-    }
-    .stat-value {
-      font-size: 20px;
-      font-weight: 700;
-      color: #2d3748;
-    }
-    .detection-box {
-      background: #edf2f7;
-      padding: 16px;
-      border-radius: 8px;
-      margin: 16px 0;
-    }
-    .detection-box h4 {
-      color: #2d3748;
-      margin-bottom: 8px;
-      font-size: 14px;
-      font-weight: 600;
-    }
-    .detection-box ul {
-      list-style: none;
-      padding-left: 0;
-    }
-    .detection-box li {
-      padding: 4px 0;
-      color: #4a5568;
-      font-size: 14px;
-    }
-    .detection-box li:before {
-      content: "✓ ";
-      color: #48bb78;
-      font-weight: bold;
-      margin-right: 8px;
-    }
-    .action-box {
-      background: #fff5f5;
-      border: 2px solid #fc8181;
-      padding: 16px;
-      border-radius: 8px;
-      margin: 16px 0;
-    }
-    .action-box.high { background: #fffaf0; border-color: #f6ad55; }
-    .action-box.moderate { background: #ebf8ff; border-color: #63b3ed; }
-    .action-box h4 {
-      color: #c53030;
-      margin-bottom: 8px;
-      font-size: 14px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-    .action-box.high h4 { color: #c05621; }
-    .action-box.moderate h4 { color: #2c5282; }
-    .action-box ul {
-      list-style: none;
-      padding-left: 0;
-    }
-    .action-box li {
-      padding: 4px 0;
-      font-size: 14px;
-      color: #2d3748;
-    }
-    .action-box li:before {
-      content: "→ ";
-      color: #e53e3e;
-      font-weight: bold;
-      margin-right: 8px;
-    }
-    .action-box.high li:before { color: #dd6b20; }
-    .action-box.moderate li:before { color: #3182ce; }
-    .transaction-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 16px;
-    }
-    .transaction-table th {
-      background: #2d3748;
-      color: white;
-      padding: 12px;
-      text-align: left;
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-    .transaction-table td {
-      padding: 12px;
-      border-bottom: 1px solid #e2e8f0;
-      font-size: 14px;
-      color: #4a5568;
-    }
-    .transaction-table tr:hover {
-      background: #f7fafc;
-    }
-    .disclaimer {
-      background: #fffaf0;
-      border: 2px solid #f6ad55;
-      padding: 24px;
-      border-radius: 8px;
-      margin-top: 40px;
-    }
-    .disclaimer h4 {
-      color: #c05621;
-      margin-bottom: 12px;
-      font-size: 16px;
-      font-weight: 700;
-    }
-    .disclaimer p {
-      color: #744210;
-      font-size: 14px;
-      line-height: 1.6;
-      margin-bottom: 8px;
-    }
-    @media print {
-      body { background: white; padding: 0; }
-      .report-container { box-shadow: none; }
-    }
-  </style>
-</head>
-<body>
-  <div class="report-container">
-    <div class="report-header">
-      <h1>🛡️ Fraud Detection Report</h1>
-      <p>Generated: ${reportDate}</p>
-    </div>
+  const reportDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const totalFraudAmount = fraudulent.reduce((sum, tx) => sum + (tx.amount || 0), 0);
+  const totalApprovedAmount = approved.reduce((sum, tx) => sum + (tx.amount || 0), 0);
+  const fraudRate = ((fraudulent.length / allTransactions.length) * 100).toFixed(2);
+  const allAccountKeys = Object.keys(Object.assign({}, fraudAccountMap, approvedAccountMap));
 
-    <div class="report-body">
-      <!-- Executive Summary -->
-      <div class="summary-grid">
-        <div class="summary-card blue">
-          <h3>Total Transactions</h3>
-          <div class="value">${uploadedTransactions.length}</div>
-        </div>
-        <div class="summary-card">
-          <h3>Fraudulent Detected</h3>
-          <div class="value">${fraudulent.length}</div>
-        </div>
-        <div class="summary-card orange">
-          <h3>Fraud Rate</h3>
-          <div class="value">${fraudRate}%</div>
-        </div>
-        <div class="summary-card green">
-          <h3>Affected Accounts</h3>
-          <div class="value">${Object.keys(accountMap).length}</div>
-        </div>
-        <div class="summary-card purple">
-          <h3>Total Amount at Risk</h3>
-          <div class="value">$${totalAmount.toFixed(2)}</div>
-        </div>
-      </div>
+  // Build flagged section
+  let flaggedSection = '';
+  if (fraudulent.length > 0) {
+    flaggedSection = '<h2>Flagged / Escalated Transactions</h2>';
+    flaggedSection += '<p class="section-subtitle">' + fraudulent.length + ' transaction(s) flagged for review or escalation</p>';
+    Object.entries(fraudAccountMap).forEach(function(entry) {
+      var accountId = entry[0];
+      var transactions = entry[1];
+      var avgRisk = transactions.reduce(function(sum, tx) { return sum + tx.fraud_percentage; }, 0) / transactions.length;
+      var badgeClass = avgRisk >= 80 ? 'badge-red' : avgRisk >= 60 ? 'badge-orange' : 'badge-yellow';
+      var badgeText = avgRisk >= 80 ? 'Critical' : avgRisk >= 60 ? 'High Risk' : 'Moderate';
+      var action = avgRisk >= 80 ? 'Block account and escalate to fraud investigation team immediately.' : avgRisk >= 60 ? 'Place temporary hold and contact account holder for verification within 4 hours.' : 'Schedule manual review within 24 hours and monitor account activity.';
 
-      <h2 class="section-title">📋 Detailed Findings by Account</h2>
+      flaggedSection += '<div class="account"><div class="account-head">';
+      flaggedSection += '<span class="account-name">Account: ' + accountId + '</span>';
+      flaggedSection += '<span class="badge ' + badgeClass + '">' + badgeText + ' - ' + avgRisk.toFixed(1) + '%</span>';
+      flaggedSection += '</div><table><thead><tr><th>Transaction ID</th><th>Date</th><th>Amount</th><th>Fraud Score</th><th>Classification</th><th>Status</th></tr></thead><tbody>';
+      transactions.forEach(function(tx) {
+        var classification = tx.fraud_percentage >= 80 ? 'Escalated' : 'Flagged';
+        flaggedSection += '<tr>';
+        flaggedSection += '<td>' + (tx.transaction_id || '-') + '</td>';
+        flaggedSection += '<td>' + (tx.date || '-') + '</td>';
+        flaggedSection += '<td>$' + (tx.amount || 0).toFixed(2) + '</td>';
+        flaggedSection += '<td class="fraud-score">' + tx.fraud_percentage.toFixed(1) + '%</td>';
+        flaggedSection += '<td>' + classification + '</td>';
+        flaggedSection += '<td>' + (tx.status || 'Pending') + '</td>';
+        flaggedSection += '</tr>';
+      });
+      flaggedSection += '</tbody></table>';
+      flaggedSection += '<div class="actions"><p><strong>Recommended Action:</strong> ' + action + '</p></div></div>';
+    });
+  }
 
-      ${Object.entries(accountMap).map(([accountId, transactions]) => {
-        const avgRisk = transactions.reduce((sum, tx) => sum + tx.fraud_percentage, 0) / transactions.length;
-        const totalAmount = transactions.reduce((sum, tx) => sum + (tx.amount || 0), 0);
+  // Build approved section
+  let approvedSection = '';
+  if (approved.length > 0) {
+    approvedSection = '<h2>Approved Transactions</h2>';
+    approvedSection += '<p class="section-subtitle">' + approved.length + ' transaction(s) cleared as legitimate</p>';
+    Object.entries(approvedAccountMap).forEach(function(entry) {
+      var accountId = entry[0];
+      var transactions = entry[1];
+      var avgScore = transactions.reduce(function(sum, tx) { return sum + tx.fraud_percentage; }, 0) / transactions.length;
 
-        const riskLevel = avgRisk >= 80 ? 'critical' : avgRisk >= 70 ? 'high' : avgRisk >= 60 ? 'elevated' : 'moderate';
-        const riskLabel = avgRisk >= 80 ? 'CRITICAL' : avgRisk >= 70 ? 'HIGH' : avgRisk >= 60 ? 'ELEVATED' : 'MODERATE';
+      approvedSection += '<div class="account"><div class="account-head">';
+      approvedSection += '<span class="account-name">Account: ' + accountId + '</span>';
+      approvedSection += '<span class="badge badge-green">Approved - ' + avgScore.toFixed(1) + '%</span>';
+      approvedSection += '</div><table><thead><tr><th>Transaction ID</th><th>Date</th><th>Amount</th><th>Fraud Score</th><th>Classification</th><th>Status</th></tr></thead><tbody>';
+      transactions.forEach(function(tx) {
+        approvedSection += '<tr>';
+        approvedSection += '<td>' + (tx.transaction_id || '-') + '</td>';
+        approvedSection += '<td>' + (tx.date || '-') + '</td>';
+        approvedSection += '<td>$' + (tx.amount || 0).toFixed(2) + '</td>';
+        approvedSection += '<td class="safe-score">' + tx.fraud_percentage.toFixed(1) + '%</td>';
+        approvedSection += '<td>Approved</td>';
+        approvedSection += '<td>' + (tx.status || 'Cleared') + '</td>';
+        approvedSection += '</tr>';
+      });
+      approvedSection += '</tbody></table>';
+      approvedSection += '<div class="actions-green"><p><strong>Status:</strong> These transactions have been analyzed and cleared as legitimate. No further action required.</p></div></div>';
+    });
+  }
 
-        return `
-          <div class="account-card ${riskLevel}">
-            <div class="account-header">
-              <div class="account-id">Account: ${Fmt.escapeHtml(accountId)}</div>
-              <div class="risk-badge ${riskLevel}">${riskLabel} RISK</div>
-            </div>
+  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">';
+  html += '<title>Transaction Analysis Report - ' + new Date().toISOString().split('T')[0] + '</title>';
+  html += '<style>';
+  html += '*{margin:0;padding:0;box-sizing:border-box}';
+  html += "body{font-family:'Segoe UI',Arial,sans-serif;padding:48px;background:#fff;color:#1a1a1a;line-height:1.6}";
+  html += '.header{border-bottom:3px solid #1a56db;padding-bottom:20px;margin-bottom:32px}';
+  html += '.header h1{font-size:28px;font-weight:700;color:#0f172a}';
+  html += '.header .meta{font-size:13px;color:#64748b;margin-top:6px}';
+  html += '.summary{display:flex;gap:24px;margin-bottom:36px;flex-wrap:wrap}';
+  html += '.summary-box{flex:1;min-width:140px;padding:18px;border:1px solid #e2e8f0;border-radius:8px}';
+  html += '.summary-box .label{font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}';
+  html += '.summary-box .val{font-size:24px;font-weight:700}';
+  html += '.summary-box .val.red{color:#dc2626}';
+  html += '.summary-box .val.green{color:#16a34a}';
+  html += '.summary-box .val.blue{color:#1a56db}';
+  html += 'h2{font-size:20px;font-weight:700;color:#0f172a;margin:32px 0 16px;padding-bottom:8px;border-bottom:1px solid #e2e8f0}';
+  html += '.section-subtitle{font-size:14px;color:#64748b;margin-bottom:16px}';
+  html += '.account{margin-bottom:28px;page-break-inside:avoid}';
+  html += '.account-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}';
+  html += '.account-name{font-size:16px;font-weight:700}';
+  html += '.badge{padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;text-transform:uppercase}';
+  html += '.badge-red{background:#fef2f2;color:#dc2626;border:1px solid #fecaca}';
+  html += '.badge-orange{background:#fff7ed;color:#c2410c;border:1px solid #fed7aa}';
+  html += '.badge-yellow{background:#fefce8;color:#a16207;border:1px solid #fef08a}';
+  html += '.badge-green{background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0}';
+  html += 'table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}';
+  html += 'th{background:#f8fafc;padding:10px 12px;text-align:left;font-weight:600;color:#374151;border-bottom:2px solid #e2e8f0}';
+  html += 'td{padding:9px 12px;border-bottom:1px solid #f1f5f9}';
+  html += '.fraud-score{font-weight:700;color:#dc2626}';
+  html += '.safe-score{font-weight:600;color:#16a34a}';
+  html += '.actions{margin-top:12px;padding:12px 16px;background:#f8fafc;border-radius:6px;border-left:3px solid #1a56db}';
+  html += '.actions p{font-size:13px;color:#374151}';
+  html += '.actions-green{margin-top:12px;padding:12px 16px;background:#f0fdf4;border-radius:6px;border-left:3px solid #16a34a}';
+  html += '.actions-green p{font-size:13px;color:#374151}';
+  html += '.footer{margin-top:40px;padding-top:20px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8}';
+  html += '@media print{body{padding:24px}h2{page-break-before:auto}.account{page-break-inside:avoid}}';
+  html += '</style></head><body>';
+  html += '<div class="header"><h1>Bank Fraud Detection - Transaction Analysis Report</h1>';
+  html += '<div class="meta">Report Date: ' + reportDate + ' | Analyst: System Generated | Reference: RPT-' + Date.now().toString(36).toUpperCase() + '</div></div>';
+  html += '<div class="summary">';
+  html += '<div class="summary-box"><div class="label">Total Transactions</div><div class="val blue">' + allTransactions.length + '</div></div>';
+  html += '<div class="summary-box"><div class="label">Flagged / Escalated</div><div class="val red">' + fraudulent.length + '</div></div>';
+  html += '<div class="summary-box"><div class="label">Approved</div><div class="val green">' + approved.length + '</div></div>';
+  html += '<div class="summary-box"><div class="label">Fraud Rate</div><div class="val red">' + fraudRate + '%</div></div>';
+  html += '<div class="summary-box"><div class="label">Amount at Risk</div><div class="val red">$' + totalFraudAmount.toLocaleString('en-US', {minimumFractionDigits:2}) + '</div></div>';
+  html += '<div class="summary-box"><div class="label">Approved Amount</div><div class="val green">$' + totalApprovedAmount.toLocaleString('en-US', {minimumFractionDigits:2}) + '</div></div>';
+  html += '</div>';
+  html += flaggedSection;
+  html += approvedSection;
+  html += '<div class="footer"><p>This report was prepared by the Bank Fraud Detection system. All flagged transactions require manual verification before any action is taken. Total accounts analyzed: ' + allAccountKeys.length + '. Report generated on ' + reportDate + '.</p></div>';
+  html += '<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>';
+  html += '</body></html>';
 
-            <div class="account-stats">
-              <div class="stat">
-                <div class="stat-label">Fraudulent Transactions</div>
-                <div class="stat-value">${transactions.length}</div>
-              </div>
-              <div class="stat">
-                <div class="stat-label">Average Fraud Score</div>
-                <div class="stat-value">${avgRisk.toFixed(1)}%</div>
-              </div>
-              <div class="stat">
-                <div class="stat-label">Total Amount</div>
-                <div class="stat-value">$${totalAmount.toFixed(2)}</div>
-              </div>
-            </div>
-
-            <div class="detection-box">
-              <h4>🔍 How Fraud Was Detected</h4>
-              <ul>
-                ${avgRisk >= 70 ? `
-                  <li>High fraud probability detected (${avgRisk.toFixed(1)}%)</li>
-                  <li>Multiple risk indicators flagged across transactions</li>
-                  <li>Pattern analysis identified suspicious behavior</li>
-                  <li>Transaction characteristics match known fraud patterns</li>
-                ` : `
-                  <li>Moderate fraud probability detected (${avgRisk.toFixed(1)}%)</li>
-                  <li>Several risk indicators present in transaction data</li>
-                  <li>Anomaly detection flagged unusual patterns</li>
-                  <li>Manual review recommended for verification</li>
-                `}
-              </ul>
-            </div>
-
-            <div class="action-box ${avgRisk >= 80 ? 'critical' : avgRisk >= 60 ? 'high' : 'moderate'}">
-              <h4>⚠️ Recommended Actions</h4>
-              <ul>
-                ${avgRisk >= 80 ? `
-                  <li>IMMEDIATE ACTION REQUIRED - Block account immediately</li>
-                  <li>Flag all pending transactions for review</li>
-                  <li>Initiate fraud investigation with security team</li>
-                  <li>Contact account holder for immediate verification</li>
-                  <li>Review all recent account activity for additional fraud</li>
-                  <li>Document all findings in case management system</li>
-                ` : avgRisk >= 60 ? `
-                  <li>HIGH PRIORITY - Place temporary hold on account</li>
-                  <li>Contact account holder immediately for verification</li>
-                  <li>Review transaction details manually within 4 hours</li>
-                  <li>Monitor account for additional suspicious activity</li>
-                  <li>Consider enhanced account verification requirements</li>
-                  <li>Escalate to fraud investigation team if confirmed</li>
-                ` : `
-                  <li>STANDARD REVIEW - Schedule manual review within 24 hours</li>
-                  <li>Contact account holder for transaction confirmation</li>
-                  <li>Monitor account for emerging fraud patterns</li>
-                  <li>Document findings in case management system</li>
-                  <li>Consider additional verification for large transactions</li>
-                `}
-              </ul>
-            </div>
-
-            <table class="transaction-table">
-              <thead>
-                <tr>
-                  <th>Transaction ID</th>
-                  <th>Date</th>
-                  <th>Amount</th>
-                  <th>Fraud Score</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${transactions.map(tx => `
-                  <tr>
-                    <td>${Fmt.escapeHtml(tx.transaction_id)}</td>
-                    <td>${Fmt.escapeHtml(tx.date || 'N/A')}</td>
-                    <td>$${(tx.amount || 0).toFixed(2)}</td>
-                    <td><strong>${tx.fraud_percentage.toFixed(1)}%</strong></td>
-                    <td>${Fmt.escapeHtml(tx.status || 'Pending Review')}</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        `;
-      }).join('')}
-
-      <div class="disclaimer">
-        <h4>⚠️ IMPORTANT DISCLAIMER</h4>
-        <p>This report is generated by an automated fraud detection system using advanced machine learning algorithms.</p>
-        <p>All findings and recommendations must be verified by authorized personnel before taking action.</p>
-        <p>Do not take automated blocking actions without proper review and approval from management.</p>
-        <p>This report is for internal use only and contains sensitive information. Handle according to your organization's data security policies.</p>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    // Auto-print dialog on load
-    window.onload = function() {
-      setTimeout(() => {
-        window.print();
-      }, 500);
-    };
-  </script>
-</body>
-</html>`;
-
-  // Open in new window
   const printWindow = window.open('', '_blank');
   printWindow.document.write(html);
   printWindow.document.close();
-
-  showToast(`PDF report opened in new window - Use "Print to PDF" to save`);
+  showToast('PDF report ready — use Print dialog to save as PDF');
 }
 
 function wireUploadForm() {
   // Wire report generation button
   document.getElementById("generate-report-btn").addEventListener("click", generateFraudReport);
+
+  // Wire drag-and-drop zone
+  const dropzone = document.getElementById("csv-dropzone");
+  const fileInput = document.getElementById("upload-file-input");
+  const fileInfo = document.getElementById("dropzone-file-info");
+  const filenameEl = document.getElementById("dropzone-filename");
+  const removeBtn = document.getElementById("dropzone-remove");
+
+  dropzone.addEventListener("click", () => fileInput.click());
+
+  dropzone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropzone.classList.add("drag-over");
+  });
+
+  dropzone.addEventListener("dragleave", () => {
+    dropzone.classList.remove("drag-over");
+  });
+
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("drag-over");
+    const file = e.dataTransfer.files[0];
+    const validExts = [".csv", ".xlsx", ".xls"];
+    const isValid = file && validExts.some(ext => file.name.toLowerCase().endsWith(ext));
+    if (isValid) {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      fileInput.files = dt.files;
+      showDropzoneFile(file.name);
+    } else {
+      showToast("Please drop a CSV or Excel file (.csv, .xlsx, .xls)");
+    }
+  });
+
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files[0]) {
+      showDropzoneFile(fileInput.files[0].name);
+    }
+  });
+
+  removeBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    fileInput.value = "";
+    fileInfo.style.display = "none";
+    dropzone.classList.remove("has-file");
+  });
+
+  function showDropzoneFile(name) {
+    filenameEl.textContent = name;
+    fileInfo.style.display = "inline-flex";
+    dropzone.classList.add("has-file");
+  }
 
   document.getElementById("upload-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1459,12 +1507,14 @@ function wireUploadForm() {
     const btn = document.getElementById("upload-predict-btn");
     const resultsCard = document.getElementById("upload-results-card");
     if (!file) {
-      statusEl.textContent = "Choose a CSV file first.";
+      statusEl.textContent = "Please select or drop a CSV/Excel file first.";
+      statusEl.style.color = "#dc2626";
       return;
     }
     btn.disabled = true;
-    btn.textContent = "Predicting…";
-    statusEl.textContent = `Scoring ${Fmt.escapeHtml(file.name)}…`;
+    btn.textContent = "Analyzing…";
+    statusEl.style.color = "";
+    statusEl.textContent = `Analyzing ${Fmt.escapeHtml(file.name)}…`;
     resultsCard.style.display = "none";
     try {
       const resp = await Api.uploadPredict(file);
@@ -1499,7 +1549,8 @@ function wireUploadForm() {
       // Show success message
       showToast(`${resp.fraud_count} suspicious transactions saved to Investigation tab`);
     } catch (err) {
-      statusEl.textContent = "";
+      statusEl.textContent = err.message || "An error occurred while analyzing the file.";
+      statusEl.style.color = "#dc2626";
       showToast(err.message);
     } finally {
       btn.disabled = false;
@@ -1904,8 +1955,6 @@ function populateNav() {
       btn.addEventListener("click", () => showPage(btn.dataset.page));
     }
   });
-  const simFlaskIcon = document.getElementById("simulator-flask-icon");
-  if (simFlaskIcon) simFlaskIcon.innerHTML = Icons.flask;
   document.getElementById("drawer-close-btn").innerHTML = Icons.close;
   document.getElementById("queue-prev").innerHTML = Icons.chevronLeft;
   document.getElementById("queue-next").innerHTML = Icons.chevronRight;
@@ -1956,8 +2005,6 @@ function showTab(page, tabName) {
       loadHistoryViewer();
     } else if (tabName === "manual-entry") {
       if (!simOptions) loadManualEntryOptions();
-    } else if (tabName === "simulator") {
-      if (!simOptions) loadSimulatorOptions();
     }
   } else if (page === "investigation") {
     if (tabName === "flagged-cases") {
@@ -2099,14 +2146,13 @@ function generateHistoryReport() {
   if (uploadHistory.length === 0 || currentHistoryIndex < 0) return;
 
   const session = uploadHistory[currentHistoryIndex];
-  const fraudulent = session.transactions.filter(tx => tx.fraud_percentage >= 50);
 
-  if (fraudulent.length === 0) {
-    showToast("No fraudulent transactions in this upload");
+  if (session.transactions.length === 0) {
+    showToast("No transactions in this upload");
     return;
   }
 
-  showReportFormatDialog(fraudulent);
+  showReportFormatDialog(session.transactions);
 }
 
 function wireHistoryControls() {
@@ -2134,20 +2180,65 @@ function wireHistoryControls() {
   document.getElementById('history-generate-report').addEventListener('click', generateHistoryReport);
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  loadUploadedTransactions(); // Load uploaded transactions from localStorage
-  loadUploadHistory(); // Load upload history
+// ---------------------------------------------------------------------
+// authentication
+// ---------------------------------------------------------------------
+function checkAuth() {
+  return sessionStorage.getItem('fraud-detection-logged-in') === 'true';
+}
+
+function showApp() {
+  document.getElementById('login-page').style.display = 'none';
+  document.getElementById('app').style.display = '';
+  initApp();
+}
+
+function wireLogin() {
+  document.getElementById('login-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+
+    if (email === 'admin@bank.com' && password === 'admin123') {
+      sessionStorage.setItem('fraud-detection-logged-in', 'true');
+      sessionStorage.setItem('fraud-detection-user', email);
+      showApp();
+    } else {
+      const hint = document.querySelector('.login-hint');
+      hint.textContent = 'Invalid credentials. Please try again.';
+      hint.style.color = '#dc2626';
+    }
+  });
+}
+
+function initApp() {
+  loadUploadedTransactions();
+  loadUploadHistory();
   populateNav();
   wireThemeToggle();
   wireTabs();
   wireQueueControls();
-  wireSimulatorForm();
   wireUploadForm();
   wireAccountAnalysisForm();
   wireManualEntryForm();
   wireCaseBackButton();
   wireDrawer();
   wireHistoryControls();
+
+  const goUploadBtn = document.getElementById("go-to-upload-btn");
+  if (goUploadBtn) {
+    goUploadBtn.addEventListener("click", () => showPage("data-input"));
+  }
+
   showPage("overview");
   window.addEventListener("resize", Fmt.debounce(rerenderCurrentPageCharts, 200));
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  if (checkAuth()) {
+    showApp();
+  } else {
+    document.getElementById('login-page').style.display = '';
+    wireLogin();
+  }
 });

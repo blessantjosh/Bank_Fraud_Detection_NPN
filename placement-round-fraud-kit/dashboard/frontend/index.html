@@ -1,19 +1,51 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="light">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Bank Transaction Fraud & Anomaly Detection</title>
-<link rel="stylesheet" href="css/style.css" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<title>Bank Fraud Detection</title>
+<link rel="stylesheet" href="css/style.css?v=20260820222400" />
+<!-- CLEAN PROFESSIONAL LIGHT THEME - HIGHEST PRIORITY -->
+<link rel="stylesheet" href="css/CLEAN_PROFESSIONAL.css?v=20260820222400" />
 </head>
 <body>
-<div id="app">
+
+<!-- LOGIN PAGE -->
+<div id="login-page" class="login-page">
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-header">
+        <div class="login-logo">B</div>
+        <h1>Bank Fraud Detection</h1>
+        <p>Transaction Risk Monitoring System</p>
+      </div>
+      <form id="login-form" class="login-form">
+        <div class="login-field">
+          <label for="login-email">Email</label>
+          <input type="email" id="login-email" placeholder="Enter your email" required />
+        </div>
+        <div class="login-field">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" placeholder="Enter your password" required />
+        </div>
+        <button type="submit" class="login-btn">Sign In</button>
+        <p class="login-hint">Use authorized credentials to access the system</p>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN APP (hidden until login) -->
+<div id="app" style="display:none">
 
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark">F</div>
+      <div class="brand-mark">B</div>
       <div class="brand-text">
-        <h1>Fraud Detection</h1>
+        <h1>Bank Fraud Detection</h1>
         <p>Transaction Risk Monitoring</p>
       </div>
     </div>
@@ -24,11 +56,6 @@
       <button class="nav-item" data-page="investigation"></button>
     </nav>
 
-    <div class="sidebar-footer">
-      Risk scores are analytical indicators based on transaction patterns —
-      not verified fraud determinations. All flagged cases require manual review
-      before any action is taken.
-    </div>
   </aside>
 
   <div class="main">
@@ -37,7 +64,7 @@
         <h2 id="page-title">Overview</h2>
         <div class="topbar-sub" id="page-subtitle">Portfolio-wide transaction risk monitoring</div>
       </div>
-      <button class="theme-toggle" id="theme-toggle" type="button">
+      <button class="theme-toggle" id="theme-toggle" type="button" style="display:none">
         <span id="theme-icon"></span>
         <span id="theme-label">Dark</span>
       </button>
@@ -47,47 +74,124 @@
 
       <!-- ================= OVERVIEW ================= -->
       <section class="page active" id="page-overview">
-        <div class="grid grid-cols-5" id="kpi-tiles">
-          <div class="kpi-tile"><p class="kpi-label">Total Transactions</p><div class="kpi-value skeleton-loading" data-kpi="total"></div></div>
-          <div class="kpi-tile"><p class="kpi-label">Priority Review</p><div class="kpi-value skeleton-loading" data-kpi="priority"></div></div>
-          <div class="kpi-tile"><p class="kpi-label">Standard Review</p><div class="kpi-value skeleton-loading" data-kpi="standard"></div></div>
-          <div class="kpi-tile"><p class="kpi-label">Review Rate</p><div class="kpi-value skeleton-loading" data-kpi="flagrate"></div></div>
-          <div class="kpi-tile"><p class="kpi-label">Avg. Amount</p><div class="kpi-value skeleton-loading" data-kpi="avgamount"></div></div>
-        </div>
 
-        <div class="card section-gap">
-          <p class="card-title">Transaction Risk Visualization</p>
-          <p class="card-subtitle" id="outlier-subtitle">Visual analysis of transaction patterns and risk indicators</p>
-          <div id="chart-outlier-scatter"></div>
-        </div>
+        <!-- Dynamic Islands - Welcome state (shown before upload) -->
+        <div id="overview-welcome" class="dynamic-island-container">
+          <div class="dynamic-island island-welcome">
+            <div class="island-glow"></div>
+            <div class="island-content">
+              <div class="island-icon-large">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                </svg>
+              </div>
+              <h3>Bank Fraud Detection System Ready</h3>
+              <p>Upload transaction data to begin risk analysis and anomaly detection</p>
+              <button class="btn btn-primary island-action-btn" id="go-to-upload-btn">Upload Transactions</button>
+            </div>
+          </div>
 
-        <div class="card section-gap">
-          <p class="card-title">System Status</p>
-          <div class="status-panel">
-            <div class="status-item">
-              <div class="status-icon">✓</div>
-              <div class="status-text">
-                <div class="status-label">Analysis System</div>
-                <div class="status-value">Ready</div>
+          <div class="dynamic-islands-row">
+            <div class="dynamic-island island-mini">
+              <div class="island-mini-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              </div>
+              <div class="island-mini-text">
+                <span class="island-mini-label">Analysis</span>
+                <span class="island-mini-value">Ready</span>
               </div>
             </div>
-            <div class="status-item">
-              <div class="status-icon" id="status-icon">ℹ</div>
-              <div class="status-text">
-                <div class="status-label">Data Status</div>
-                <div class="status-value" id="status-dataset">No transactions analyzed yet</div>
+            <div class="dynamic-island island-mini">
+              <div class="island-mini-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+              </div>
+              <div class="island-mini-text">
+                <span class="island-mini-label">Multi-Layer</span>
+                <span class="island-mini-value">Detection</span>
               </div>
             </div>
-            <div class="status-item">
-              <div class="status-icon">→</div>
-              <div class="status-text">
-                <div class="status-label">Next Step</div>
-                <div class="status-value">Go to Data Input to upload and analyze transactions</div>
+            <div class="dynamic-island island-mini">
+              <div class="island-mini-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+              </div>
+              <div class="island-mini-text">
+                <span class="island-mini-label">Secure</span>
+                <span class="island-mini-value">Protected</span>
               </div>
             </div>
           </div>
         </div>
 
+        <!-- Data-loaded state (shown after upload) -->
+        <div id="overview-data-loaded" style="display:none">
+
+          <!-- KPI Tiles -->
+          <div class="grid grid-cols-5" id="kpi-tiles">
+            <div class="kpi-tile"><p class="kpi-label">Total Transactions</p><div class="kpi-value" data-kpi="total">0</div></div>
+            <div class="kpi-tile"><p class="kpi-label">Priority Review</p><div class="kpi-value" data-kpi="priority">0</div></div>
+            <div class="kpi-tile"><p class="kpi-label">Standard Review</p><div class="kpi-value" data-kpi="standard">0</div></div>
+            <div class="kpi-tile"><p class="kpi-label">Review Rate</p><div class="kpi-value" data-kpi="flagrate">0%</div></div>
+            <div class="kpi-tile"><p class="kpi-label">Avg. Amount</p><div class="kpi-value" data-kpi="avgamount">$0</div></div>
+          </div>
+
+          <!-- Dynamic Islands - Stats -->
+          <div class="dynamic-islands-row section-gap" id="overview-dynamic-stats">
+            <div class="dynamic-island island-stat island-stat-risk">
+              <div class="island-stat-ring" id="island-risk-ring"></div>
+              <div class="island-stat-info">
+                <span class="island-stat-label">High Risk</span>
+                <span class="island-stat-value" id="island-high-risk-count">0</span>
+              </div>
+            </div>
+            <div class="dynamic-island island-stat island-stat-safe">
+              <div class="island-stat-ring" id="island-safe-ring"></div>
+              <div class="island-stat-info">
+                <span class="island-stat-label">Safe</span>
+                <span class="island-stat-value" id="island-safe-count">0</span>
+              </div>
+            </div>
+            <div class="dynamic-island island-stat island-stat-pending">
+              <div class="island-stat-ring" id="island-pending-ring"></div>
+              <div class="island-stat-info">
+                <span class="island-stat-label">Pending Review</span>
+                <span class="island-stat-value" id="island-pending-count">0</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Local Outlier Factor Graph -->
+          <div class="card section-gap" id="overview-lof-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+              <div>
+                <p class="card-title">Local Outlier Detection</p>
+                <p class="card-subtitle" id="lof-subtitle">Neighborhood density analysis — transactions with high outlier scores deviate significantly from surrounding patterns</p>
+              </div>
+              <div class="island-chart-legend">
+                <span class="legend-dot legend-normal"></span> Inlier
+                <span class="legend-dot legend-warning"></span> Borderline
+                <span class="legend-dot legend-critical"></span> Outlier
+              </div>
+            </div>
+            <div id="chart-lof-scatter"></div>
+          </div>
+
+          <!-- Risk Score Distribution -->
+          <div class="card section-gap" id="overview-visualization-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+              <div>
+                <p class="card-title">Risk Score Distribution</p>
+                <p class="card-subtitle" id="outlier-subtitle">Score distribution with outlier boundaries — transactions beyond thresholds require review</p>
+              </div>
+              <div class="island-chart-legend">
+                <span class="legend-dot legend-normal"></span> Normal
+                <span class="legend-dot legend-warning"></span> Elevated
+                <span class="legend-dot legend-critical"></span> Outlier
+              </div>
+            </div>
+            <div id="chart-risk-distribution"></div>
+          </div>
+
+        </div>
       </section>
 
       <!-- ================= DATA INPUT ================= -->
@@ -97,7 +201,6 @@
           <button class="tab-btn" data-tab="account-analysis">Account Analysis</button>
           <button class="tab-btn" data-tab="upload-history">Upload History</button>
           <button class="tab-btn" data-tab="manual-entry">Manual Entry</button>
-          <button class="tab-btn" data-tab="simulator">Simulator</button>
         </div>
 
         <!-- CSV Upload Tab -->
@@ -106,9 +209,22 @@
             <p class="card-title">Bulk Transaction Analysis</p>
             <p class="card-subtitle">Upload a CSV file with up to 5,000 transactions for fraud risk analysis.</p>
 
-            <form id="upload-form" class="filter-bar" style="margin-bottom:0">
-              <input class="input" type="file" id="upload-file-input" accept=".csv" required />
-              <button class="btn btn-primary" type="submit" id="upload-predict-btn">Analyze Transactions</button>
+            <form id="upload-form" style="margin-bottom:0">
+              <div class="dropzone" id="csv-dropzone">
+                <input type="file" id="upload-file-input" accept=".csv,.xlsx,.xls" required hidden />
+                <div class="dropzone-icon">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                  </svg>
+                </div>
+                <p class="dropzone-title">Drag & drop your CSV or Excel file here</p>
+                <p class="dropzone-subtitle">Supports .csv, .xlsx, .xls — or click to browse</p>
+                <div class="dropzone-file-info" id="dropzone-file-info" style="display:none">
+                  <span class="dropzone-filename" id="dropzone-filename"></span>
+                  <button type="button" class="dropzone-remove" id="dropzone-remove">&times;</button>
+                </div>
+              </div>
+              <button class="btn btn-primary" type="submit" id="upload-predict-btn" style="margin-top:12px">Analyze Transactions</button>
             </form>
             <p class="card-subtitle section-gap" id="upload-status"></p>
           </div>
@@ -143,7 +259,7 @@
             <form id="account-csv-form" class="filter-bar" style="margin-bottom:16px">
               <div style="flex:1">
                 <label style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;display:block">Account Transactions CSV</label>
-                <input class="input" type="file" id="account-csv-input" accept=".csv" required />
+                <input class="input" type="file" id="account-csv-input" accept=".csv,.xlsx,.xls" required />
               </div>
               <button class="btn btn-primary" type="submit" id="analyze-account-csv-btn">Analyze Account</button>
             </form>
@@ -353,96 +469,6 @@
           </div>
         </div>
 
-        <!-- Simulator Tab -->
-        <div class="tab-content" id="tab-simulator">
-          <div class="simulator-banner">
-            <span id="simulator-flask-icon"></span>
-            <span id="simulator-banner-text">Advanced tool — vary one real account's transaction and see how the score moves.</span>
-          </div>
-
-          <div class="card" style="margin-bottom:16px">
-            <p class="card-title">Why this is not a free-form "what-if"</p>
-            <p class="card-subtitle" id="simulator-note" style="line-height:1.6"></p>
-          </div>
-
-          <div class="simulator-layout">
-            <div class="card">
-              <p class="card-title">Vary a transaction for an existing account</p>
-              <form id="simulator-form" class="form-grid">
-                <div class="form-field">
-                  <label for="sim-account">Account ID (required — must exist in the data)</label>
-                  <input class="input" list="sim-account-list" id="sim-account" placeholder="e.g. AC00454" required />
-                  <datalist id="sim-account-list"></datalist>
-                </div>
-                <div class="form-field">
-                  <label for="sim-amount">Transaction amount</label>
-                  <input class="input" type="number" id="sim-amount" min="0.01" step="0.01" value="150" required />
-                </div>
-                <div class="form-field">
-                  <label for="sim-balance">Account balance</label>
-                  <input class="input" type="number" id="sim-balance" min="0" step="0.01" value="5000" required />
-                </div>
-                <div class="form-field">
-                  <label for="sim-type">Transaction type</label>
-                  <select class="select" id="sim-type"><option>Debit</option><option>Credit</option></select>
-                </div>
-                <div class="form-field">
-                  <label for="sim-channel">Channel</label>
-                  <select class="select" id="sim-channel"><option>ATM</option><option>Online</option><option>Branch</option></select>
-                </div>
-                <div class="form-field">
-                  <label for="sim-occupation">Customer occupation</label>
-                  <select class="select" id="sim-occupation"></select>
-                </div>
-                <div class="form-field">
-                  <label for="sim-age">Customer age</label>
-                  <input class="input" type="number" id="sim-age" min="18" max="100" value="35" required />
-                </div>
-                <div class="form-field">
-                  <label for="sim-duration">Transaction duration (seconds)</label>
-                  <input class="input" type="number" id="sim-duration" min="1" value="90" required />
-                </div>
-                <div class="form-field">
-                  <label for="sim-login">Login attempts</label>
-                  <input class="input" type="number" id="sim-login" min="1" max="10" value="1" required />
-                </div>
-                <div class="form-field">
-                  <label for="sim-location">Location </label>
-                  <select class="select" id="sim-location"></select>
-                </div>
-                <div class="form-field">
-                  <label for="sim-device">Device ID </label>
-                  <select class="select" id="sim-device"></select>
-                </div>
-                <div class="form-field">
-                  <label for="sim-ip">IP address </label>
-                  <select class="select" id="sim-ip"></select>
-                </div>
-                <div class="form-field">
-                  <label for="sim-merchant">Merchant ID </label>
-                  <select class="select" id="sim-merchant"></select>
-                </div>
-                <div class="form-actions">
-                  <button class="btn btn-primary" type="submit">Score this scenario</button>
-                  <span id="sim-account-summary" class="card-subtitle" style="margin-left:12px"></span>
-                </div>
-              </form>
-            </div>
-
-            <div class="card" id="simulator-result-card" style="display:none">
-              <p class="card-title">Result</p>
-              <div class="result-verdict-row">
-                <span id="sim-tier-badge"></span>
-              </div>
-              <div class="result-score tabular" id="sim-score"></div>
-              <p class="card-subtitle" id="sim-score-caption"></p>
-              <div class="field-grid" id="sim-detail-grid"></div>
-              <div class="drawer-section-title">Risk Factor Analysis</div>
-              <div id="chart-sim-shap-if"></div>
-              <p class="card-subtitle section-gap" id="sim-score-note"></p>
-            </div>
-          </div>
-        </div>
       </section>
 
       <!-- ================= INVESTIGATION ================= -->
@@ -701,10 +727,11 @@
 
 <div class="toast-stack" id="toast-stack"></div>
 
-<script src="js/icons.js"></script>
-<script src="js/format.js"></script>
-<script src="js/api.js"></script>
-<script src="js/charts.js"></script>
-<script src="js/app.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script src="js/icons.js?v=20260820222400"></script>
+<script src="js/format.js?v=20260820222400"></script>
+<script src="js/api.js?v=20260820222400"></script>
+<script src="js/charts.js?v=20260820222400"></script>
+<script src="js/app.js?v=20260820222400"></script>
 </body>
 </html>
