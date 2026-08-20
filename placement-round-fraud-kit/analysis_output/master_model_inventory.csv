@@ -1,0 +1,13 @@
+Model,Family,Supervised,Training_Data,Train_Rows,Val_Rows,Scaling,Output,Key_Hyperparameters,Role
+Isolation Forest,Tree-based Isolation,False,46 engineered features,"2,009",503,RobustScaler (train-only fit),Anomaly score (higher=more anomalous),"n_estimators=200, contamination=0.05",Global isolation detection
+Local Outlier Factor (LOF),Density-based,False,46 engineered features,"2,009",503,RobustScaler (train-only fit),Anomaly score (higher=more anomalous),"n_neighbors=20, contamination=0.05",Local density outlier detection
+One-Class SVM,Kernel-based SVM,False,46 engineered features,"2,009",503,RobustScaler (train-only fit),Anomaly score (higher=more anomalous),"kernel=rbf, nu=0.05",Kernel-based one-class classification
+Elliptic Envelope,Distribution-based,False,46 engineered features,"2,009",503,RobustScaler (train-only fit),Anomaly score (higher=more anomalous),contamination=0.05,Mahalanobis distance outliers
+DBSCAN,Density-based Clustering,False,46 engineered features,"2,009",503,RobustScaler (train-only fit),Distance to nearest core point,"eps=0.382, min_samples=10",Non-clusterable noise detection
+HDBSCAN,Hierarchical Clustering,False,46 engineered features,"2,009",503,RobustScaler (train-only fit),GLOSH outlier score,min_cluster_size=20,Hierarchical density outliers
+K-Means,Centroid-based Clustering,False,46 engineered features,"2,009",503,RobustScaler (train-only fit),Distance to nearest valid centroid,k=4 clusters,Centroid distance anomalies
+Gaussian Mixture Model,Probabilistic Clustering,False,46 engineered features,"2,009",503,RobustScaler (train-only fit),Negative log-likelihood,"n_components=4, covariance=full",Low-likelihood anomalies
+Autoencoder,Deep Learning Reconstruction,False,46 engineered features,"2,009",503,RobustScaler (train-only fit),Reconstruction MSE,"46→16→8→4→8→16→46, 150 epochs",Reconstruction error anomalies
+Variational Autoencoder,Deep Learning Variational,False,46 engineered features,"2,009",503,RobustScaler (train-only fit),Reconstruction MSE,"46→16→8→4(μ,σ)→8→16→46, 200 epochs",Variational reconstruction anomalies
+LSTM Autoencoder,Deep Learning Sequential,False,46 engineered features,"2,009",503,RobustScaler (train-only fit),Sequence reconstruction MSE,"LSTM hidden=16, latent=8, 150 epochs",Sequential behavior anomalies
+Hybrid Ensemble (IF+LOF+AE),Voting Ensemble,False,46 engineered features,"2,009",503,RobustScaler (train-only fit),Vote count (0-3),Majority vote ≥2 of 3,Consensus of 3 diverse detectors

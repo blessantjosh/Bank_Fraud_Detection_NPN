@@ -1,0 +1,13 @@
+Model,Uses_Scaling,Uses_Distance,Uses_Density,Uses_Clustering,Uses_Trees,Uses_Kernel,Uses_Covariance,Uses_Neural_Net,Uses_Sequence,Requires_Contamination,Continuous_Score,Out_of_Sample,Interpretable,Computational_Cost
+Isolation Forest,1,0,0,0,1,0,0,0,0,1,1,1,2,0
+Local Outlier Factor (LOF),1,1,1,0,0,0,0,0,0,1,1,1,1,1
+One-Class SVM,1,0,0,0,0,1,0,0,0,1,1,1,0,2
+Elliptic Envelope,1,1,0,0,0,0,1,0,0,1,1,1,1,0
+DBSCAN,1,1,1,1,0,0,0,0,0,0,1,0,1,1
+HDBSCAN,1,1,1,1,0,0,0,0,0,0,1,0,1,1
+K-Means,1,1,0,1,0,0,0,0,0,0,1,1,2,0
+Gaussian Mixture Model,1,0,1,1,0,0,1,0,0,0,1,1,1,1
+Autoencoder,1,0,0,0,0,0,0,1,0,0,1,1,1,1
+Variational Autoencoder,1,0,0,0,0,0,0,1,0,0,1,1,0,1
+LSTM Autoencoder,1,0,0,0,0,0,0,1,1,0,1,1,0,2
+Hybrid Ensemble (IF+LOF+AE),0,0,0,0,0,0,0,0,0,0,0,1,2,0
