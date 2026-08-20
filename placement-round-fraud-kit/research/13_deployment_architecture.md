@@ -248,11 +248,11 @@ Three further arguments, all specific to this system:
 
 | Argument | Detail |
 |---|---|
-| **Two models can only run in batch** | DBSCAN and HDBSCAN have no out-of-sample `.predict` (Phase 8 §0). Keeping the full 11-model score Phase 12 published *requires* a batch refit. The 9-model online variant exists precisely to escape this — but it is unvalidated (§5). |
+| **Two models can only run in batch** | DBSCAN and HDBSCAN have no out-of-sample `.predict` (Phase 8 §0). Keeping the full 8-model score Phase 12 published *requires* a batch refit. The 6-model online variant exists precisely to escape this — but it is unvalidated (§5). |
 | **The real-time feature path does not exist yet** | §3.2: `transform_new()` reaches 20 of the 46 features. Batch feature engineering is implemented, tested, and leakage-verified. |
 | **This sample's volume makes it moot** | 6.90 transactions/day over 364 days (Phase 13 §4). A nightly batch produces roughly 7 rows. Even the busiest observed month is ~226 transactions. |
 
-**What would change the answer.** If the bank wants an inline *block* or *step-up authentication* decision, real-time becomes mandatory — and then §3.2's feature store, the 9-model set, and a measured false-negative rate all become prerequisites rather than improvements. That is a different system with a different validation bar, and this architecture should not be presented as being one config flag away from it.
+**What would change the answer.** If the bank wants an inline *block* or *step-up authentication* decision, real-time becomes mandatory — and then §3.2's feature store, the 6-model online set, and a measured false-negative rate all become prerequisites rather than improvements. That is a different system with a different validation bar, and this architecture should not be presented as being one config flag away from it.
 
 **A defensible middle path** if latency is wanted before the feature store is ready: score in micro-batches (every 5–15 minutes) over recent transactions using the batch feature-engineering code against a warm history window. This keeps one feature-engineering implementation — which matters more than it sounds, because a second real-time implementation is the classic source of training/serving skew, and this pipeline's leakage safety (`closed='left'`, `shift()` before every window) is exactly the kind of subtlety a reimplementation gets wrong.
 
@@ -266,14 +266,14 @@ Three further arguments, all specific to this system:
 
 | Component | Artifact | Why it is inseparable |
 |---|---|---|
-| Feature schema | `feature_cols` (46 names, ordered) from `autoencoder_config.json` | Column order is a binding contract with every fitted model |
+| Feature schema | `feature_cols` (46 names, ordered) — the non-ID columns of `artifacts_research/features_v2.csv`, in `07_models_classical.py::load_and_split()`'s column order | Column order is a binding contract with every fitted model |
 | Feature-engineering constants | the `Amount_ZScore_Account` denominator floor ($14.60 = 5% of the training `TransactionAmount` std), `Location_Freq` frequency table, `reference.pkl`-equivalent per-account state | Training-data-derived; a new training run changes them |
-| Scaler | `models/shared_robust_scaler.pkl`, `autoencoder_scaler.pkl` | Fit on the 2,009-row train split; refitting at scoring time silently changes every score |
+| Scaler | `models/shared_robust_scaler.pkl` (single scaler, shared by all 9 models) | Fit on the 2,009-row train split; refitting at scoring time silently changes every score |
 | Models | the 6 online-capable classical model artifacts + the Hybrid Ensemble's vote logic (+ DBSCAN/HDBSCAN for batch, 8 classical models total) | — |
 | K-Means auxiliary state | the set of valid centroid indices (≥1% of training rows) | Without it the score inverts (§4) |
 | Ensemble parameters | `ensemble_weights.json` for the parallel Weighted Average | Derived from `model_pairwise_spearman.csv`; shifts with the data |
-| Thresholds | 0.9145 / 0.8406 from `threshold_analysis.json` | Percentiles of a specific score built by a specific model set |
-| Reproducibility metadata | `random_state=42`, the 2,009/503 split, the LSTM-AE's separate account-level 342/86 split, library versions | Phase 8 §0 cross-checked the row-level split against the autoencoder's own `split` column and confirmed a match; that check is only meaningful if the split is recorded |
+| Thresholds | 0.9167 / 0.8414 from `threshold_analysis.json` | Percentiles of a specific score built by a specific model set |
+| Reproducibility metadata | `random_state=42`, the 2,009/503 split, library versions | Phase 8 §0 cross-checked the row-level split against a re-derived `TimeSinceLastTxn` and confirmed a match; that check is only meaningful if the split is recorded |
 
 Isolation Forest (Model 1) is the model to copy here: `07_models_classical.py` already persists the fitted estimator, the shared scaler it was fit against, the ordered feature list it expects, and — via `11_explainability.py` — a full per-row SHAP attribution matrix. Every other model should be packaged to the same standard.
 

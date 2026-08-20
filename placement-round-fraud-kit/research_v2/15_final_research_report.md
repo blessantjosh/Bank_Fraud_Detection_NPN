@@ -285,32 +285,29 @@ Four strategies were built: **weighted average** (disagreement-inverse weights, 
 
 *Source: Phases 14–15.*
 
-Sixteen candidates (12 models + 4 ensemble strategies) were scored on six dimensions — Detection Quality (0.25), Stability (0.20), Interpretability (0.15), Scalability (0.15), Deployment Readiness (0.15), Computational Cost (0.10) — using the identical rubric and weights as the in-house pipeline, so that differences in outcome are attributable to evidence rather than to a changed rubric.
+Thirteen candidates (9 models, including the Hybrid Ensemble, + 4 ensemble strategies) are scored on six dimensions — Detection Quality (0.25), Stability (0.20), Interpretability (0.15), Scalability (0.15), Deployment Readiness (0.15), Computational Cost (0.10) — using the identical rubric and weights as the in-house pipeline, so that differences in outcome are attributable to evidence rather than to a changed rubric. (The three deep-learning candidates that previously occupied slots in this matrix — Autoencoder, VAE, LSTM-AE — no longer exist in this pipeline and are removed from the matrix along with their scores; Phase 14's own document carries the full 13-candidate re-scoring.)
 
-**Top of the matrix:**
+**Top of the matrix, directionally unchanged by the removal:**
 
-| # | Candidate | Raw /30 | Weighted |
-|---:|---|---:|---:|
-| 1 | **Isolation Forest** | 27 | **4.40** |
-| 2= | **Percentile Aggregation** | 19 | **3.40** |
-| 2= | **Autoencoder** | 21 | **3.40** |
-| 4= | K-Means / LOF / Hybrid Ensemble | 20 / 19 / 19 | 3.15 |
-| … | … | … | … |
-| 16 | LSTM Autoencoder | 9 | 1.50 |
+| # | Candidate | Notes |
+|---:|---|---|
+| 1 | **Isolation Forest** | Highest-scoring single model, as before — highest internal-validity Silhouette among the 6 out-of-sample-capable base models, most retrain-stable of the two models measured (§7.2), exact TreeExplainer SHAP |
+| 2 | **Percentile Aggregation** | The recommended ensemble strategy (§9) |
+| 3= | K-Means / LOF / Hybrid Ensemble | Mid-pack on internal validity and cross-model agreement |
 
 **Detection Quality is capped at 4 for every candidate.** With no label, nothing has been *shown* to detect fraud — only to partition the space more cleanly, agree more with the field, or produce more plausible examples. Awarding a 5 would misrepresent what was proven.
 
-**The recommendation deliberately overrides the matrix, and the override is stated rather than engineered into the scores.** Isolation Forest ranks first by a full point, and the recommendation is still the ensemble — because in a system with no label, cross-model consistency is the only validation available, §8's ρ = −0.3705 shows a single model is blind to the other family's failure mode, and `TX001029` is a worked instance of that failure mode being caught. At 6.88 transactions/day the compute saved by dropping to one model is negligible.
+**The recommendation deliberately overrides a single-model top score, and the override is stated rather than engineered into the scores.** Isolation Forest ranks first individually, and the recommendation is still the 8-model ensemble — because in a system with no label, cross-model consistency is the only validation available, and §5's finding that DBSCAN is the consensus outlier among all 8 classical detectors (mean pairwise Spearman 0.242 vs. 0.480–0.685 for the rest of the field) demonstrates that even a well-performing single model's top-5% set is not something the rest of the field agrees with uniformly. At 6.88 transactions/day the compute saved by dropping to one model is negligible.
 
-**The production constraint that decides the architecture.** DBSCAN and HDBSCAN cannot score a transaction they were not fit on. **Any 11-model ensemble score is therefore batch-only.** Phase 14 §3 sets out three options; **Option B** (drop both, aggregate over the remaining nine) is recommended, with **Option C** (re-enable HDBSCAN via `prediction_data=True`) a strong follow-up here — HDBSCAN is a more valuable member on this feature set than it was in-house (8.88% best-config noise vs. 53.94%, and the field's highest mean flagged-set agreement). **A 9-model score is a different score, and Phase 13's thresholds do not transfer to it unrevalidated. That revalidation has not been run.**
+**The production constraint that decides the architecture.** DBSCAN and HDBSCAN cannot score a transaction they were not fit on. **Any 8-model ensemble score is therefore batch-only.** Phase 14 §3 sets out three options; **Option B** (drop both, aggregate over the remaining 6) is recommended, with **Option C** (re-enable HDBSCAN via `prediction_data=True`) a strong follow-up here — HDBSCAN is a more valuable member on this feature set than it was in-house (8.88% best-config noise, and a strong mean flagged-set agreement with the rest of the field). **A 6-model score is a different score, and Phase 13's thresholds do not transfer to it unrevalidated. That revalidation has not been run.**
 
-**Reduced-member fallbacks, and where they differ from in-house.** The in-house pipeline recommended a 2-model IF + Autoencoder fallback. **That is not recommended here**, because on this feature set those two are not peers: Isolation Forest is the most retrain-stable model measured (0.6021) and the Autoencoder is the least (0.3726, min 0.2115), and the Autoencoder is last of 12 on internal validity. The v2 fallback ladder is: **(1) three models — IF + LOF + Autoencoder, percentile-aggregated** (the only three-model subset where all three have measured stability and all three score out-of-sample natively), then **(2) Isolation Forest alone**, explicitly accepting the loss of the cross-family check and the `TX001029` failure mode it exists to catch.
+**Reduced-member fallbacks.** The fallback ladder for this pipeline is: **(1) the Hybrid Ensemble alone** (IF + LOF + GMM majority vote — already an internal 3-model consensus, all three out-of-sample-capable), then **(2) Isolation Forest alone**, explicitly accepting the loss of the cross-model check that §5's DBSCAN finding argues for.
 
 **Deployment posture: nightly batch.** The full ensemble is batch-only by construction; the volume does not demand real-time; the feature layer (not the models) is the blocker; and with no block tier nothing needs to complete inside a payment-authorisation window. The day real-time becomes necessary is the day a block tier is introduced — and that should not come before the system has been validated against investigator-labelled outcomes.
 
 **The largest piece of unbuilt engineering** is the real-time feature layer for the five frequency-derived features, which must become prior-only running counters in a feature store rather than whole-dataset `groupby`s (Phase 15 §3.2). **A genuine advantage over the in-house pipeline, worth stating because it runs the other way:** the in-house 46-feature set needs a per-account *history scan* at inference (expanding means, rolling windows, novelty flags); this one needs only **counter reads**. Counters are dramatically cheaper to maintain, keep consistent and backfill. **The teammate's feature set is the more deployable of the two, and the less capable — both are true.**
 
-**Investigator surface: Bank Transaction Fraud & Anomaly Detection** (`dashboard/`), a FastAPI + static-frontend console, now reading this pipeline's artifacts: `ensemble_percentile_average` for the score, Phase 13's cutoffs for the tiers, and the precomputed Isolation Forest and Autoencoder SHAP rows shown side by side. Nothing on it is hand-typed from a report — every number is read from an artifact at startup, so a stale artifact produces a visibly stale dashboard rather than a silently wrong one. Its What-if Simulator required a **redesign rather than a repoint**: free-form new-transaction scoring is not honestly possible on a feature set built from population statistics, so it was rebuilt as an *Account Scenario Simulator* anchored to a real account's true historical frequency values (Phase 15 §7.3).
+**Investigator surface: Bank Transaction Fraud & Anomaly Detection** (`dashboard/`), a FastAPI + static-frontend console, reading this pipeline's artifacts: `ensemble_percentile_average` for the score, Phase 13's cutoffs for the tiers, and the precomputed Isolation Forest SHAP rows (the sole explainability output, §8). Nothing on it is hand-typed from a report — every number is read from an artifact at startup, so a stale artifact produces a visibly stale dashboard rather than a silently wrong one. Its What-if Simulator required a **redesign rather than a repoint**: free-form new-transaction scoring is not honestly possible on a feature set built from population statistics, so it was rebuilt as an *Account Scenario Simulator* anchored to a real account's true historical frequency values (Phase 15 §7.3).
 
 **The one thing Bank Transaction Fraud & Anomaly Detection produces that nothing else in this project does: investigator decisions.** `queue_state.json` is the only mechanism here capable of generating labelled data, and every limitation in this report traces back to not having any.
 
@@ -334,9 +331,9 @@ Onboard 40,000 new devices and `device_frequency` shifts for **every device alre
 
 **The unseen-category rate for Class A is the metric that matters most**, more than PSI itself: a category the frozen lookup table has never seen has no encoded value at all. No baseline for it exists (it was 0% by construction at training), so the proposed >2% alarm is labelled as an uncalibrated starting value rather than presented as derived.
 
-**Retraining is measurably expensive here**, and the operating procedure must say so: §7.2's bootstrap numbers mean a retrain changes **40%–63%** of the flagged set with no drift and no new data. Every trigger except an anchor-correlation collapse therefore requires two consecutive batches before firing. Isolation Forest (0.6021) is the retrain-stable anchor to evaluate a retrain against; the Autoencoder (0.3726) needs the tightest change control of any model here — a direct reversal of the in-house pipeline.
+**Retraining is measurably expensive here**, and the operating procedure must say so: §7.2's bootstrap numbers mean a retrain changes **40%–49%** of the flagged set (Isolation Forest, LOF; the only two models bootstrap-tested) with no drift and no new data. Every trigger except an anchor-correlation collapse therefore requires two consecutive batches before firing. Isolation Forest (0.6021 mean pairwise Jaccard) is the more retrain-stable of the two measured models and the natural anchor to evaluate a retrain against; LOF (0.5124) needs somewhat tighter change control. Extending this measurement to the remaining 6 base models (§14 item 9) would sharpen this picture.
 
-**Three hard-failure integrity checks** (the run stops, rather than a signal being raised): the ensemble member count must match the manifest (percentile aggregation's skip-and-renormalise property means a silently-dropped member still produces a plausible score with no error); a frozen canary set must reproduce exactly — **including `TX000275`, the dataset's highest-scoring transaction and its best single canary**; and the Phase 5–6 feature-engineering assertions must all pass, above all the row-alignment check, since a misaligned merge produces a fully-populated, correctly-typed, entirely wrong feature matrix that every other metric would read as normal.
+**Three hard-failure integrity checks** (the run stops, rather than a signal being raised): the ensemble member count must match the manifest (percentile aggregation's skip-and-renormalise property means a silently-dropped member still produces a plausible score with no error); a frozen canary set must reproduce exactly — **including `TX002192`, the dataset's highest-scoring transaction and its best single canary**; and the Phase 5–6 feature-engineering assertions must all pass, above all the row-alignment check, since a misaligned merge produces a fully-populated, correctly-typed, entirely wrong feature matrix that every other metric would read as normal.
 
 **The honest limit.** Fraud that deliberately uses common devices, common merchants and common locations is **invisible to a feature set built entirely from population frequencies**, and no amount of monitoring on these 18 columns will surface it (Phase 16 §3.3, §9).
 
@@ -366,47 +363,42 @@ These are the most trustworthy findings in the entire project, because each was 
 
 | Finding | In-house | This pipeline |
 |---|---|---|
-| **`TX000275` is the clearest fraud-signature match in the data** | In its top-1% tier (Phase 10) | **Rank 1 of 2,512** on the ensemble score (0.9951) |
-| **DBSCAN is the consensus outlier among the detectors** | Lowest agreement, lowest ensemble weight | Lowest by a wide margin: mean ρ 0.235 vs. next-lowest 0.423; weight 0.051 |
+| **`TX000275` is one of the clearest fraud-signature matches in the data** | In its top-1% tier (Phase 10) | **Rank 2 of 2,512** on the ensemble score (0.9949) |
+| **DBSCAN is the consensus outlier among the detectors** | Lowest agreement, lowest ensemble weight | Lowest by a wide margin: mean ρ 0.242 vs. 0.480–0.685 for the rest of the field; weight 0.073 |
 | **Isolation Forest's SHAP is dominated by low-cardinality one-hots** | #1 `TransactionType_Debit` (0.176), #2 `CustomerOccupation_Retired` (0.152) | **#1 `TransactionType_Debit` (0.391), #2 `CustomerOccupation_Retired` (0.294)** — same two features, same order |
-| **Isolation Forest and the Autoencoder explain scores almost oppositely** | ρ = −0.157, 1/10 top-10 overlap | ρ = **−0.3705**, 3/10 overlap |
-| **Borda ≈ percentile aggregation** | ρ = 0.9999, Jaccard 0.953 | ρ = 0.9999, Jaccard 0.969 |
-| **mean+3σ and Q3+1.5×IQR flag zero on a percentile-averaged score** | Zero flagged (thresholds 1.1088 / 1.1363 vs. max 0.9988) | **Zero flagged** (1.1757 / 1.2332 vs. max 0.9951) |
+| **Borda ≈ percentile aggregation** | ρ = 0.9999, Jaccard 0.953 | ρ = **1.0000**, Jaccard **1.000** (no members produce missing scores in this 8-model combination) |
+| **mean+3σ and Q3+1.5×IQR flag zero on a percentile-averaged score** | Zero flagged (thresholds 1.1088 / 1.1363 vs. max 0.9988) | **Zero flagged** (1.1725 / 1.2120 vs. max 0.9967) |
 | **Elliptic Envelope's Gaussian assumption is violated** | 100% of 46 features reject Shapiro-Wilk | **100% of 18 features reject** |
 | **Optuna does not beat an affordable exhaustive grid on a 3-hyperparameter space** | Grid 0.6092 vs. Optuna 0.5981 | Grid 0.4154 vs. Optuna 0.4107 |
-| **`beta` dominates the VAE's hyperparameter space** | Confirmed | Confirmed, on a smaller architecture |
-| **Retraining substantially changes the flagged set** | 41–47% churn | **40–63% churn** |
+| **Retraining substantially changes the flagged set** | 41–47% churn | **33–53% churn** (Isolation Forest, LOF only — no deep-learning model to test) |
 | **The top-10% tail dilutes into unremarkable transactions** | Confirmed by spot check | Confirmed, **and attributed** — largely the Student demographic segment |
 | **The recommended ensemble strategy** | Percentile aggregation | Percentile aggregation |
 | **No automatic block tier is defensible without a label** | Confirmed | Confirmed |
-| **The Hybrid Ensemble's Phase 10 partition is mislabelled** | 253 rows described as majority-vote; actually ≥1-vote (94 = majority) | **269 rows described as majority-vote; actually ≥1-vote (83 = majority)** — the same error reproduced independently, which points at the shared top-5%-cut convention on a discrete score, not a transcription slip |
+| **The Hybrid Ensemble's Phase 10 top-5%-cut partition mechanically selects the ≥1-vote set, not the model's own ≥2-of-3 majority** | 253 rows described as majority-vote; actually ≥1-vote (94 = true majority) | **255 rows selected by the top-5%-of-vote_count cut; actually ≥1-vote (101 = true majority, matching the model's own reported `majority_flagged_rate` of 4.02%)** — the same mechanical effect reproduced independently, which points at the shared top-5%-cut convention applied to a discrete 0–3 score, not a transcription slip |
 
 ### 12.3 Findings that reversed — and what each reversal is attributable to
 
 | Finding | In-house | This pipeline | Attributable to |
 |---|---|---|---|
-| **Internal-validity leader** | HDBSCAN 0.672; Elliptic Envelope 7th (0.610) | **Elliptic Envelope 0.5409 by a wide margin**; CH 592.5 vs. next-best 180.1 | A lower-dimensional, more Gaussian-ish scaled space gives an MCD ellipsoid a coherent tail to find. Tempered by its field-lowest Jaccard (0.170) — it finds a real group, just not the one anyone else finds |
-| **Most retrain-stable model** | LOF 0.590; IF least at 0.527 (narrow spread) | **IF 0.6021; Autoencoder least at 0.3726** (wide spread) | With 18 mostly population-level features and a 3-D bottleneck, the Autoencoder has little redundant structure to anchor "normal" on; IF's univariate thresholds are less resample-sensitive |
-| **What the Autoencoder detects** | "Is this amount unusual *for this account*" (top 4 features all personal-baseline) | **"Is this transaction's popularity profile unusual"** (top 3 all frequency-encoded) | Directly caused by the absence of personal-baseline features. **This is the single most important interpretive difference for an investigator** |
+| **Internal-validity leader** | HDBSCAN 0.672; Elliptic Envelope 7th (0.610) | **Elliptic Envelope 0.5409 by a wide margin**; CH 592.5 vs. next-best 180.1 | A lower-dimensional, more Gaussian-ish scaled space gives an MCD ellipsoid a coherent tail to find. Tempered by its field-lowest mean Jaccard (0.206) — it finds a real group, just not the one anyone else finds |
+| **Most retrain-stable model (of the models measured)** | LOF 0.590; IF least at 0.527 (narrow spread) | **IF 0.6021; LOF 0.5124** (wider spread) | Isolation Forest's univariate splits are less resample-sensitive than LOF's local-density estimate on a feature set this size |
 | **HDBSCAN usability** | Best config 53.94% noise | **Best config 8.88% noise** | Lower dimensionality reduces mutual-reachability inflation |
 | **K-Means k=2** | A degenerate 3-row micro-cluster artifact | **A genuine 1,830/179 demographic split** (77.7% Student) | Real structure in the occupation one-hots that the in-house space did not surface as cleanly |
 | **K-Means elbow** | Clean k=4 | **No elbow in k=2–10**; rule mechanically returns the boundary | Reported as an unresolved ambiguity rather than resolved conveniently |
-| **GMM covariance** | `full` wins; the reg_covar search reinforced an overfitting warning | **`diag` wins and stays `diag`** under a free-`reg_covar` search — no overfitting warning | Far fewer free parameters (18 variances vs. 171 covariance entries) leaves much less room for a shrinking regularisation floor to overfit |
-| **VAE tail behaviour** | Smooths the extreme tail (lower max than the plain AE) | **Does not smooth** — worse at every percentile including the max | Less redundant structure for KL regularisation to trade against |
-| **LSTM-AE training** | Smooth curves, no overfitting | **Overfits from ~epoch 50** (val 0.49 → 0.79) | Fewer, more redundant features to encode; the same tiny 342-sequence training set |
+| **GMM covariance** | `full` wins; the reg_covar search reinforced an overfitting warning | **`diag` wins and stays `diag`** under a free-`reg_covar` search — no overfitting warning | Far fewer free parameters (18 variances vs. a full covariance matrix) leaves much less room for a shrinking regularisation floor to overfit |
 | **Optuna vs. random search** | Statistically tied | **Optuna wins clearly (+0.0267)** | A smoother, more exploitable objective surface without personal-baseline noise |
 | **Winning `n_estimators` for IF** | 300 (largest in grid) | **50 (smallest in grid)** | 18 lower-dimensional features need fewer trees to isolate the tail |
-| **Cross-check against v1's independent proxy** | ρ ≈ 0.442–0.444 (modest, consistent) | **ρ ≈ −0.007 (nothing)** | v1's proxy is itself built on personal-baseline features. **A measured confirmation that the two feature philosophies flag different transactions** — and a real reduction in the corroborating evidence available to this pipeline |
-| **Decision-matrix leader** | IF and Autoencoder tied 4.20 | **IF alone at 4.40; Autoencoder 3.40** | The Autoencoder's measured collapse on internal validity and stability |
-| **Recommended minimal fallback** | 2 models: IF + Autoencoder | **3 models (IF + LOF + AE), then IF alone** | The IF/AE stability gap makes them poor peers here |
+| **Cross-check against v1's independent proxy** | ρ ≈ 0.442–0.444 (modest, consistent) | **ρ ≈ 0.000–0.005 (nothing)** | v1's proxy is itself built on personal-baseline features. **A measured confirmation that the two feature philosophies flag different transactions** — and a real reduction in the corroborating evidence available to this pipeline |
+| **Explainability surface** | Two SHAP explainers (Isolation Forest + Autoencoder), compared | **One SHAP explainer (Isolation Forest only)** — no cross-model comparison, since no other remaining classical model is naturally SHAP-compatible without an expensive KernelExplainer | This pipeline's deep-learning model was removed; the cross-model comparison it enabled went with it |
+| **Recommended minimal fallback** | 2 models: IF + Autoencoder | **The Hybrid Ensemble (IF+LOF+GMM) alone, then IF alone** | No Autoencoder exists in this pipeline to pair with IF; the Hybrid Ensemble is already an internal 3-model consensus |
 
 ### 12.4 The bottom line for the bank
 
 **Neither pipeline is strictly better. They trade capability against deployability, and the trade is real in both directions:**
 
-- **The in-house 46-feature set is more capable.** It can ask "is this unusual *for this customer*" — the question Phase 1 identified as the primary signal for account takeover, the strongest-fit fraud scenario in this schema. It has per-account novelty flags. Its Autoencoder detects amount anomalies relative to personal history. This pipeline can do none of that.
-- **The teammate's 18-feature set is more deployable.** Its inference-time features are counter reads and frozen lookups, not per-account history scans. It trains and scores faster (Isolation Forest: 4.48s vs. 9.72s for the same 5 configs). It is easier to reason about, easier to explain to a reviewer, and materially cheaper to keep consistent in production. It also contributes one idea the in-house pipeline flagged as worth having and never built (`high_amount_transaction`).
-- **Where they agree, believe it.** §12.2 lists fourteen findings reached twice, independently. `TX000275` being the clearest fraud candidate in the data, DBSCAN being the odd detector out, Isolation Forest and the Autoencoder being complementary rather than redundant, percentile aggregation being the right combination strategy, and no block tier being defensible — all of these are now supported by two independent lines of evidence rather than one.
+- **The in-house 46-feature set is more capable.** It can ask "is this unusual *for this customer*" — the question Phase 1 identified as the primary signal for account takeover, the strongest-fit fraud scenario in this schema. It has per-account novelty flags. This pipeline can do none of that.
+- **The teammate's 18-feature set is more deployable.** Its inference-time features are counter reads and frozen lookups, not per-account history scans. It trains and scores faster (Isolation Forest: ~4.1s vs. ~9.7s for the same 5 configs). It is easier to reason about, easier to explain to a reviewer, and materially cheaper to keep consistent in production. It also contributes one idea the in-house pipeline flagged as worth having and never built (`high_amount_transaction`).
+- **Where they agree, believe it.** §12.2 lists twelve findings reached twice, independently. `TX000275` being one of the clearest fraud candidates in the data, DBSCAN being the odd detector out, percentile aggregation being the right combination strategy, and no block tier being defensible — all of these are now supported by two independent lines of evidence rather than one.
 - **Where they disagree, the disagreement is explained, not hand-waved.** Every reversal in §12.3 has a stated mechanism traceable to a specific structural difference between the feature sets.
 - **The one genuinely uncomfortable number is worth stating plainly.** The two ensembles correlate at essentially **zero** on which transactions they rank as anomalous. That is not a bug in either; it is the clearest possible measurement of how much a feature-engineering philosophy determines what an unsupervised system detects. **A bank running only one of these two feature philosophies is seeing one view of its transaction risk, not the whole of it** — and the strongest single practical recommendation this project can make from having built both is that the frequency-based features here and the personal-baseline features in the in-house set are **complementary, and the eventual production feature set should contain both.**
 
@@ -419,14 +411,14 @@ Stated in order of how much they constrain what can be claimed.
 1. **No fraud label.** The binding constraint. No precision, no recall, no AUC, no cost-optimal threshold, no validated detection claim anywhere in this project. Every "evaluation" here is internal consistency or human plausibility. This is not a caveat to the results; it is the boundary of what the results can be.
 2. **No personal baseline and no per-account novelty in this feature set.** Phase 1's strongest-fit scenario (account takeover) is only *partially* reachable, and Scenarios 2 and 4 are not reachable at all (§2). This is a capability statement, not a modelling shortfall.
 3. **The frequency features are not leakage-safe for live scoring.** Global counts include each account's own future transactions. Fine for offline scoring on a static dataset, wrong for a point-in-time backtest, and requiring a rebuild as prior-only counters before deployment (§3.4, Phase 15 §3.2).
-4. **No ensemble-level stability measurement exists.** Three individual models were bootstrap-tested; none of the four strategies was. The recommendation rests partly on the assumption that aggregation damps the measured 0.373–0.602 churn, and that assumption is untested here. **This is the single highest-value missing measurement** (Phase 14 §5, Phase 16 §5.2).
-5. **The recommended production score has not been computed.** Option B's 9-model score is a different score from the published 11-model one, and Phase 13's thresholds do not transfer to it unrevalidated (§10).
+4. **No ensemble-level stability measurement exists.** Two individual models were bootstrap-tested (Isolation Forest, LOF); none of the four ensemble strategies was. The recommendation rests partly on the assumption that aggregation damps the measured 0.512–0.602 churn, and that assumption is untested here. **This is the single highest-value missing measurement** (Phase 14 §5, Phase 16 §5.2).
+5. **The recommended production score has not been fully revalidated at reduced membership.** Option B's 6-model score (dropping DBSCAN and HDBSCAN) is a different score from the published 8-model one, and Phase 13's thresholds do not transfer to it unrevalidated (§10).
 6. **2,512 rows, 495 accounts, 365 days, 6.88 transactions/day.** A research sample. The relative comparisons generalise; the fitted constants and the absolute daily volumes do not.
 7. **The 5% contamination assumption is an assumption**, used throughout as a modelling convention. It is not a measured fraud rate for this population.
-8. **Two of the eleven ensemble members cannot score unseen rows**, and one (LSTM-AE) structurally cannot score 4.4% of rows at all.
+8. **Two of the eight ensemble members (DBSCAN, HDBSCAN) cannot score unseen rows.**
 9. **Alert-volume and unseen-category alarm bands are proposals, not measurements** — there is only one batch of data in this project (Phase 16 §5.1, §2.3).
-10. **Five discrepancies were found in this pipeline's own reports while synthesising**, all logged in Phase 14 §5 rather than silently corrected: the self-inclusive "mean pairwise" agreement figures in Phase 8 §3.2–3.3 (rankings unaffected); the mislabelled Hybrid Ensemble partition in Phase 10 §1 (269 rows is the ≥1-vote set, not the ≥2-of-3 set of 83); the unqualified LSTM-AE rate key in `model_comparison_summary.json` (4.82% over all rows vs. the correctly-labelled 5.04% over applicable rows); **`TransactionAmount` being `StandardScaler(log1p(amount))` rather than the plain `StandardScaler(amount)` Phase 5 §1 states**; and **`amount_to_balance_ratio` being exactly `StandardScaler(log1p(amount / (balance + 1)))`, contradicting Phase 5 §2.3's conclusion that no exact formula was recoverable**. The last two change no modelling result — every phase used the columns as given — but they are the difference between a partly-inferred and a fully-specified production feature layer, and the log transform on `TransactionAmount` changes how a SHAP contribution on that column should be read (unusual on a *log*-amount scale, not in dollars).
-11. **`TX000395` and `TX002192`-style readings are plausibility, not evidence.** Where Phase 10 offers a card-testing or ATO narrative for an ambiguous transaction, it says so explicitly. None of those readings is established.
+10. **No deep-learning model is part of this pipeline.** An earlier iteration's Autoencoder, VAE and LSTM-Autoencoder were removed after evaluation showed none was competitive against the classical field on internal validity or (for the two measured) stability, and the LSTM-AE structurally could not score 4.4% of rows. This narrows the explainability surface to a single explained model (§8) and the ensemble to 8 classical detectors — both trade-offs stated, not hidden.
+11. **`TX000395`-style readings are plausibility, not evidence.** Where Phase 10 offers a card-testing or ATO narrative for an ambiguous transaction, it says so explicitly. None of those readings is established.
 
 ---
 
@@ -436,35 +428,34 @@ In priority order, with the reasoning for the order:
 
 1. **Capture investigator decisions from day one.** Bank Transaction Fraud & Anomaly Detection's `queue_state.json` is the only label-generating mechanism in this project. A year of it makes a supervised model, a real precision/recall number, and a genuine cost-optimised threshold possible. **Everything in §13's list of limitations either dissolves or shrinks once labels exist.**
 2. **Measure ensemble-level bootstrap stability.** Cheap (re-run Phase 10 §2's procedure through Phase 12's aggregation) and it closes the largest evidential gap under the current recommendation.
-3. **Compute and validate the Option B 9-model score**, with Spearman/Jaccard against the published 11-model score and re-derived thresholds. Required before any deployment.
+3. **Compute and validate the Option B 6-model score**, with Spearman/Jaccard against the published 8-model score and re-derived thresholds. Required before any deployment.
 4. **Merge the two feature philosophies.** §12.4's strongest finding. The production feature set should carry this pipeline's frequency encodings *and* the in-house pipeline's personal-baseline and per-account novelty features. Neither alone sees the whole picture, and the near-zero correlation between the two ensembles measures exactly how much is being missed by picking one.
 5. **Rebuild the frequency features as prior-only running counters.** Prerequisite for real-time scoring and for any honest point-in-time backtest.
 6. **Resolve K-Means' k and GMM's `n_components`.** Both are currently boundary artifacts of their search ranges (§5). Extending the search range is a few minutes of compute.
-7. **Refit the VAE at the searched `beta` (~0.011) rather than the deployed 0.1**, or drop it — on current evidence it is a strictly worse Autoencoder that correlates 0.837 with one (§5, §6).
-8. **Enable `prediction_data=True` for HDBSCAN** and evaluate Option C. HDBSCAN has the field's highest flagged-set agreement here and is worth more than it was in-house.
-9. **Build the Phase 16 monitoring in the order given in §8 of that report** — the integrity assertions first, because the code already exists and they catch the invisible failures.
-10. **Drop the LSTM-AE.** It overfits, it cannot score 4.4% of rows, and it scores last of sixteen candidates (§10). Keeping it costs a model artifact and a data-preparation pipeline for no measurable return.
+7. **Enable `prediction_data=True` for HDBSCAN** and evaluate Option C. HDBSCAN has a strong flagged-set agreement with the field here and is worth more than it was in-house.
+8. **Build the Phase 16 monitoring in the order given in §8 of that report** — the integrity assertions first, because the code already exists and they catch the invisible failures.
+9. **Extend bootstrap stability testing to the remaining 6 out-of-sample-capable base models** (OCSVM, Elliptic Envelope, K-Means, GMM), not just Isolation Forest and LOF, so the retrain-churn picture covers the whole ensemble rather than 2 of 8 members.
 
 ---
 
 ## 15. Final Recommendation
 
-**Deploy: percentile aggregation over the out-of-sample-capable detectors (Phase 14 Option B), with Isolation Forest and Autoencoder SHAP attributions shown side by side on every alert, feeding a two-tier human review queue.**
+**Deploy: percentile aggregation over the 8 classical out-of-sample/batch-capable detectors (Phase 14 Option B for real-time), with Isolation Forest SHAP attributions — the sole explainability output — on every alert, feeding a two-tier human review queue.**
 
 | Tier | Threshold | Score cut | Volume in this sample |
 |---|---|---:|---|
-| **Priority review** | 99th percentile | **0.9510** | 26 (1.04%) |
-| **Standard review** | 95th percentile | **0.8671** | 126 (5.02%) |
+| **Priority review** | 99th percentile | **0.9627** | 26 (1.04%) |
+| **Standard review** | 95th percentile | **0.8852** | 126 (5.02%) |
 
 **Secondary score, computed in parallel at no extra model cost:** the weighted-average ensemble, which is unbounded and therefore supports sigma/IQR-style thresholds that the percentile score structurally cannot (§9).
 
-**Fallbacks if fewer artifacts can be operated:** three models (IF + LOF + Autoencoder, percentile-aggregated), then Isolation Forest alone — explicitly accepting, at that last step, the loss of the cross-model check and the failure mode it catches.
+**Fallbacks if fewer artifacts can be operated:** the Hybrid Ensemble alone (IF + LOF + GMM majority vote, already a 3-model consensus), then Isolation Forest alone — explicitly accepting, at that last step, the loss of the cross-model check §5's DBSCAN-agreement finding argues for.
 
 **Run it nightly in batch.** Real-time waits for the frequency-counter feature store, and it is not needed until a block tier exists.
 
-### Why an ensemble, when a single model scores a full point higher
+### Why an ensemble, when a single model scores highest individually
 
-Because with no label, cross-model agreement is the only validation available, and this pipeline measured that Isolation Forest and the Autoencoder agree on almost nothing about *why* a transaction is anomalous (ρ = −0.3705). `TX001029` is the worked proof: a $516.47 transaction at 0.40× its account's balance with normal login behaviour, high on Isolation Forest for an extreme merchant-frequency value that has nothing to do with fraud. A second model with a structurally different basis is what stops that reaching a reviewer. Discarding that check to save seconds of compute at 6.88 transactions/day is the wrong trade.
+Because with no label, cross-model agreement is the only validation available, and this pipeline measured that even a strong individual detector's top-5% set is not something the rest of the classical field agrees with uniformly — DBSCAN's mean pairwise Spearman with the other 7 base models is 0.242 against a 0.480–0.685 range for everyone else (§5), and no model's flagged set fully explains another's. Aggregating damps any one detector's idiosyncrasies against a field that includes at least one clear outlier. Discarding that check to save seconds of compute at 6.88 transactions/day is the wrong trade.
 
 ### Why no blocking tier
 
@@ -472,6 +463,6 @@ Because a cost-optimal threshold requires counting false negatives, and counting
 
 ### What this system is, and what it is not
 
-**It is** a ranked, explained, thresholded queue of transactions that deviate from population-level patterns, built on a verified feature pipeline, with every model's behaviour measured, every disagreement documented, and every unmeasured claim marked as unmeasured. **It is** the more deployable of two pipelines built over the same data, and it independently corroborated fourteen of that other pipeline's findings.
+**It is** a ranked, explained, thresholded queue of transactions that deviate from population-level patterns, built on a verified feature pipeline, with every model's behaviour measured, every disagreement documented, and every unmeasured claim marked as unmeasured. **It is** the more deployable of two pipelines built over the same data, and it independently corroborated twelve of that other pipeline's findings.
 
 **It is not** a fraud detector with a known hit rate. It has never been shown to catch fraud, because there is no fraud in this dataset to be shown against. **It is not** capable of asking whether a transaction is unusual *for a specific customer* — that requires features this set does not contain. And **it is not** finished: the single most valuable next step is not a better model, it is capturing the investigator decisions that would let anyone, finally, measure whether any of this works.
